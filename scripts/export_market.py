@@ -1,8 +1,11 @@
 """Puts linux-files into a checkout of the plugin marketplace (Lee-xeo/cage-plugins).
 
-    python3 scripts/export_market.py MARKET_DIR --author LOGIN --fork OWNER/REPO [--branch NAME] [--run-url URL]
+    python3 scripts/export_market.py MARKET_DIR --author LOGIN --fork OWNER/REPO [--branch NAME] [--run-url URL] [--base REF]
 
-MARKET_DIR must be a checkout of the marketplace's main branch. The script
+MARKET_DIR is a checkout of the marketplace: its main branch, or the fork's
+branch with main merged in. Whether this version is already published is
+judged from REF's index.json when --base is given (e.g. origin/main), since a
+fork branch's own index.json lists the version being exported. The script
 replaces plugins/linux-files with this repo's linux-files/ (without .DS_Store
 or __pycache__) and adds the author to authors.json. It doesn't run the
 marketplace's scripts/build.py, commit or push; the workflow
@@ -23,6 +26,7 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
@@ -44,8 +48,13 @@ def plugin_version():
     return manifest["name"], manifest["version"]
 
 
-def listed_version(market, name):
-    index = json.loads((market / "index.json").read_text(encoding="utf-8"))
+def listed_version(market, name, base=None):
+    if base:
+        text = subprocess.run(["git", "-C", str(market), "show", f"{base}:index.json"],
+                              check=True, capture_output=True, text=True).stdout
+    else:
+        text = (market / "index.json").read_text(encoding="utf-8")
+    index = json.loads(text)
     return next((entry["version"] for entry in index["plugins"] if entry["name"] == name and not entry.get("target")), None)
 
 
@@ -79,13 +88,14 @@ def main():
     parser.add_argument("--fork", required=True, help="OWNER/REPO of your fork of the marketplace")
     parser.add_argument("--branch", default="linux-files")
     parser.add_argument("--run-url", default="")
+    parser.add_argument("--base", default="", help="git ref whose index.json says what upstream has published")
     args = parser.parse_args()
     market = args.market.resolve()
     if not (market / "scripts" / "build.py").is_file() or not (market / "index.json").is_file():
         sys.exit(f"error: {market} is not a checkout of {UPSTREAM}")
 
     name, version = plugin_version()
-    previous = listed_version(market, name)
+    previous = listed_version(market, name, args.base)
     if previous == version:
         print(f"version={version}\nstatus=published")
         return

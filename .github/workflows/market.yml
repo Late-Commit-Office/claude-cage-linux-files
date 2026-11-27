@@ -1,7 +1,9 @@
-# Tests the plugin, then, when its version changes, rebuilds the linux-files
-# branch of the marketplace fork from the marketplace's current main and
-# force-pushes it. The branch is never merged or rebased: every export is one
-# commit on top of upstream main.
+# Tests the plugin, then, when its version changes, adds a commit with it to
+# the linux-files branch of the marketplace fork and pushes it. The branch is
+# never rewritten (no force-push), so an open pull request keeps its history
+# and a reviewer can see what changed since their review. Upstream main is
+# merged in first; conflicts in the generated index.json, dist/ and
+# authors.json are settled by taking upstream's copy and rebuilding.
 #
 # Needs the secret MARKET_TOKEN: a fine-grained token for the fork only, with
 # Contents and Workflows read/write (upstream main may change workflow files,
@@ -66,14 +68,42 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Rebuild the branch on upstream main
+      - name: Update the branch with upstream main and this version
         id: export
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           git clone --quiet "https://github.com/$UPSTREAM.git" market
-          git -C market checkout --quiet -B "$BRANCH" origin/main
-          python3 src/scripts/export_market.py market --author "$AUTHOR" --fork "$FORK" --branch "$BRANCH" --run-url "$RUN_URL" > export.txt
+          git -C market config user.name "LCO Assistant"
+          git -C market config user.email "claude@latecommitoffice.com"
+          previous=""
+          if git -C market fetch --quiet "https://github.com/$FORK.git" "refs/heads/$BRANCH:refs/remotes/fork/$BRANCH" 2>/dev/null; then
+            git -C market checkout --quiet -B "$BRANCH" "fork/$BRANCH"
+            previous=$(git -C market show "fork/$BRANCH:plugins/$PLUGIN/plugin.json" 2>/dev/null \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
+            if ! git -C market merge --quiet --no-edit origin/main; then
+              # index.json and dist/ are generated, and authors.json gets our line again from
+              # export_market.py: take upstream's copy, the steps below redo ours.
+              conflicts=$(git -C market diff --name-only --diff-filter=U)
+              other=$(printf '%s\n' "$conflicts" | grep -v -e '^index\.json$' -e '^authors\.json$' -e '^dist/' || true)
+              if [ -n "$other" ]; then
+                git -C market merge --abort
+                echo "::error::Merging upstream main conflicts outside index.json, authors.json and dist/: $other"
+                exit 1
+              fi
+              printf '%s\n' "$conflicts" | while IFS= read -r path; do
+                if git -C market cat-file -e "origin/main:$path" 2>/dev/null; then
+                  git -C market checkout origin/main -- "$path"
+                else
+                  git -C market rm --quiet -- "$path"
+                fi
+              done
+              git -C market commit --quiet --no-edit
+            fi
+          else
+            git -C market checkout --quiet -B "$BRANCH" origin/main
+          fi
+          python3 src/scripts/export_market.py market --author "$AUTHOR" --fork "$FORK" --branch "$BRANCH" --run-url "$RUN_URL" --base origin/main > export.txt
           cat export.txt >> "$GITHUB_OUTPUT"
           status=$(sed -n 's/^status=//p' export.txt)
           version=$(sed -n 's/^version=//p' export.txt)
@@ -82,12 +112,8 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
           # A push exports only a new version; "Run workflow" always exports.
-          previous=""
-          if git -C market fetch --quiet "https://github.com/$FORK.git" "refs/heads/$BRANCH:refs/remotes/fork/$BRANCH" 2>/dev/null; then
-            previous=$(git -C market show "fork/$BRANCH:plugins/$PLUGIN/plugin.json" 2>/dev/null \
-              | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
-          fi
           if [ "$GITHUB_EVENT_NAME" = push ] && [ "$previous" = "$version" ]; then
             echo "The fork's $BRANCH branch already has $PLUGIN $version. Raise the version, or use Run workflow to export anyway." >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -99,6 +125,12 @@ jobs:
         if: steps.export.outputs.skip == 'false'
         working-directory: market
         run: |
+          # build.py never deletes archives and refuses changed files under an
+          # existing one, so drop ours that upstream hasn't published.
+          for archive in dist/"$PLUGIN"-*.tar.gz; do
+            [ -e "$archive" ] || continue
+            git cat-file -e "origin/main:$archive" 2>/dev/null || git rm --quiet -- "$archive"
+          done
           python3 scripts/build.py
           python3 scripts/build.py --check
 
@@ -108,14 +140,24 @@ jobs:
         env:
           TOKEN: ${{ secrets.MARKET_TOKEN }}
           TITLE: ${{ steps.export.outputs.title }}
+          PREVIOUS: ${{ steps.export.outputs.previous }}
+          VERSION: ${{ steps.export.outputs.version }}
         run: |
           if [ -z "$TOKEN" ]; then
             echo "::error::The MARKET_TOKEN secret is missing."
             exit 1
           fi
           git add --all "plugins/$PLUGIN" authors.json dist index.json
-          git -c user.name="LCO Assistant" -c user.email="claude@latecommitoffice.com" commit --quiet -m "$TITLE"
-          git push --quiet --force "https://x-access-token:${TOKEN}@github.com/$FORK.git" "HEAD:refs/heads/$BRANCH"
+          if git diff --cached --quiet; then
+            echo "Nothing changed since the last export; the merge of upstream main, if any, is still pushed."
+          else
+            # The pull request's title stays as first opened; later commits say what they update.
+            if [ -n "$PREVIOUS" ]; then TITLE="feat($PLUGIN): v$PREVIOUS → v$VERSION"; fi
+            [ "$PREVIOUS" = "$VERSION" ] && TITLE="feat($PLUGIN): v$VERSION, re-exported"
+            git commit --quiet -m "$TITLE"
+          fi
+          # A plain push: it fails rather than overwrite anything on the branch.
+          git push --quiet "https://x-access-token:${TOKEN}@github.com/$FORK.git" "HEAD:refs/heads/$BRANCH"
 
       - name: Link the pull request
         if: steps.export.outputs.skip == 'false'
