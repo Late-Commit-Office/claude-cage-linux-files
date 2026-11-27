@@ -1,0 +1,10 @@
+{
+  "zh-CN": {
+    "displayName": "Linux 文件",
+    "description": "按分栏浏览整个 Linux 文件系统，复制任意路径，并把文件或压缩后的文件夹下载到你的 Mac。"
+  },
+  "zh-TW": {
+    "displayName": "Linux 檔案",
+    "description": "以分欄瀏覽整個 Linux 檔案系統，複製任意路徑，並把檔案或壓縮後的資料夾下載到你的 Mac。"
+  }
+}

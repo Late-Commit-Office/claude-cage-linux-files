@@ -1,0 +1,34 @@
+{
+  "name": "linux-files",
+  "displayName": "Linux Files",
+  "version": "0.1.0",
+  "description": "Browse the whole Linux file system in columns, copy any path, and download files or zipped folders to your Mac.",
+  "icon": "icon.svg",
+  "engines": { "cage": ">=0.2.1" },
+  "kind": "guest",
+  "permissions": [],
+  "categories": ["files", "system"],
+  "contributes": {
+    "mcpServers": [
+      { "id": "files", "command": ["python3", "server.py"] }
+    ],
+    "views": [
+      {
+        "id": "browser",
+        "title": "Linux Files",
+        "icon": "icon.svg",
+        "entry": "view/index.html",
+        "server": "files"
+      }
+    ],
+    "settings": [
+      {
+        "id": "export-folder",
+        "title": "Download folder",
+        "description": "Optional. A folder shared with your Mac, as its path appears in Linux, where downloads are saved directly. Leave empty to pick a shared folder in the page; downloads then go to its Downloads subfolder.",
+        "type": "string",
+        "env": "EXPORT_FOLDER"
+      }
+    ]
+  }
+}

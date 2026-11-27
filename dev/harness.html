@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Linux Files – dev harness</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 12px system-ui, sans-serif; }
+  body { display: grid; grid-template-rows: 1fr 90px; }
+  iframe { border: 0; width: 100%; height: 100%; }
+  #log { margin: 0; padding: 6px 10px; overflow: auto; background: #111; color: #9fd; border-top: 1px solid #333; }
+</style>
+</head>
+<body>
+<iframe id="view" sandbox="allow-scripts" src="/view/index.html" title="Linux Files"></iframe>
+<pre id="log"></pre>
+<script src="/dev/harness.js"></script>
+</body>
+</html>
