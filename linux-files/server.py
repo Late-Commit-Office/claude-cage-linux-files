@@ -16,7 +16,7 @@ import time
 import uuid
 import zipfile
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 PAGE_ONLY = {"ui": {"visibility": ["app"]}}
 MAX_SCAN = 50000          # entries read from one folder before giving up
 DEFAULT_LIMIT = 300
@@ -74,11 +74,19 @@ class Refused(Exception):
 def absolute(path):
     if not isinstance(path, str) or not path.startswith("/") or "\0" in path:
         raise Refused("Give an absolute path.")
-    return os.path.normpath(path) if path != "/" else "/"
+    # POSIX lets normpath keep a leading "//" ("//proc" stays "//proc"); Linux
+    # treats it as "/", so fold it first.
+    return os.path.normpath("/" + path.lstrip("/"))
 
 
 def under(path, roots):
     return any(path == root or path.startswith(root + "/") for root in roots)
+
+
+def off_limits(path):
+    """True for "/" and the pseudo file systems, judged after following links."""
+    real = os.path.realpath(path)
+    return real == "/" or under(real, SPECIAL_ROOTS)
 
 
 def kind_of(mode):
@@ -177,10 +185,10 @@ def list_directory(args):
 # ---------------------------------------------------------------- details
 
 def text_preview(path, info):
-    if not stat.S_ISREG(info.st_mode) or info.st_size > PREVIEW_MAX_FILE or under(path, SPECIAL_ROOTS):
+    if not stat.S_ISREG(info.st_mode) or info.st_size > PREVIEW_MAX_FILE or off_limits(path):
         return None
     try:
-        with open(path, "rb") as file:
+        with open_regular(os.path.realpath(path)) as file:
             data = file.read(PREVIEW_BYTES)
     except OSError:
         return None
@@ -268,6 +276,8 @@ def shared_mounts(mountinfo):
         if len(fields) < 6 or not tail:
             continue
         fstype, point, options = tail[0], unescape_mount(fields[4]), fields[5].split(",")
+        if len(tail) > 2:
+            options += tail[2].split(",")  # the superblock's options can be read-only too
         if not any(fstype == shared or fstype.startswith(shared + ".") for shared in SHARED_TYPES):
             continue
         if "ro" in options or under(point, SPECIAL_ROOTS) or point in found:
@@ -392,19 +402,46 @@ def free_name(folder, name):
     return candidate
 
 
+class ReadFailed(Exception):
+    """Reading a source file failed partway; wraps the OSError."""
+
+
 def copy_stream(job, source, target):
     while True:
         if job["cancel"].is_set():
             raise Cancelled()
-        chunk = source.read(1 << 20)
+        try:
+            chunk = source.read(1 << 20)
+        except OSError as error:
+            raise ReadFailed(error) from error
         if not chunk:
             return
         target.write(chunk)
         job["bytes_done"] += len(chunk)
 
 
+class NotRegular(OSError):
+    pass
+
+
+def open_regular(path):
+    """Opens a regular file for reading without following a final link.
+
+    O_NONBLOCK keeps a FIFO swapped in after a check from blocking the open;
+    fstat then confirms what was actually opened."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise NotRegular(0, "Not a regular file", path)
+        os.set_blocking(fd, True)
+        return os.fdopen(fd, "rb")
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def write_file(job, source_path, partial):
-    with open(source_path, "rb") as source, open(partial, "xb") as target:
+    with open_regular(source_path) as source, open(partial, "xb") as target:
         copy_stream(job, source, target)
     job["files_done"] = 1
 
@@ -415,11 +452,22 @@ def skip(job, reason):
         job["skipped"].append(reason)
 
 
+def zip_entry(name, info):
+    entry = zipfile.ZipInfo(name, time.localtime(max(info.st_mtime, 315532800))[:6])  # zip dates start in 1980
+    entry.external_attr = (info.st_mode & 0xFFFF) << 16
+    entry.file_size = info.st_size
+    entry.compress_type = zipfile.ZIP_DEFLATED
+    return entry
+
+
 def write_zip(job, folder, partial):
     base = os.path.dirname(folder.rstrip("/")) or "/"
     with zipfile.ZipFile(partial, "x", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+        # The archive is recognised by its inode, so a link or another spelling
+        # of the destination folder can't make it zip itself.
+        own = os.fstat(archive.fp.fileno())
         for root, dirs, files in os.walk(folder, onerror=lambda error: skip(job, os_message(error))):
-            if under(root, SPECIAL_ROOTS):
+            if under(os.path.realpath(root), SPECIAL_ROOTS):
                 dirs[:] = []
                 continue
             relative_root = os.path.relpath(root, base)
@@ -427,23 +475,26 @@ def write_zip(job, folder, partial):
                 archive.writestr(relative_root + "/", b"")
             for name in sorted(files):
                 path = os.path.join(root, name)
-                if path == partial:
-                    continue  # the archive being written, when the folder holds its own destination
                 try:
                     info = os.lstat(path)
+                    if (info.st_dev, info.st_ino) == (own.st_dev, own.st_ino) or not stat.S_ISREG(info.st_mode):
+                        continue  # the archive itself; links, pipes, sockets and devices
+                    source = open_regular(path)
+                    opened = os.fstat(source.fileno())
                 except OSError as error:
+                    # Unreadable, gone since the listing, swapped for a link, or an
+                    # I/O error on the mount: leave the file out and carry on.
                     skip(job, os_message(error))
                     continue
-                if not stat.S_ISREG(info.st_mode):
-                    continue  # links, pipes, sockets and devices are left out
-                entry = zipfile.ZipInfo.from_file(path, os.path.join(relative_root, name), strict_timestamps=False)
-                entry.compress_type = zipfile.ZIP_DEFLATED
-                try:
-                    with open(path, "rb") as source, archive.open(entry, "w", force_zip64=True) as target:
+                # Errors writing the archive are not caught here: they fail the export.
+                with source, archive.open(zip_entry(os.path.join(relative_root, name), opened), "w",
+                                          force_zip64=True) as target:
+                    try:
                         copy_stream(job, source, target)
-                    job["files_done"] += 1
-                except PermissionError as error:
-                    skip(job, os_message(error))
+                    except ReadFailed as failure:
+                        skip(job, os_message(failure.__cause__) + " (cut short in the archive)")
+                        continue
+                job["files_done"] += 1
 
 
 def run_export(job):
@@ -459,6 +510,8 @@ def run_export(job):
     except Cancelled:
         job["state"] = "cancelled"
     except Exception as error:  # reported to the page, never raised
+        if isinstance(error, ReadFailed):
+            error = error.__cause__
         job.update(state="failed", error=os_message(error) if isinstance(error, OSError) else str(error))
     finally:
         if job["state"] != "done":
@@ -470,10 +523,12 @@ def run_export(job):
 
 
 def export_start(args):
-    source = absolute(args.get("path"))
+    asked = absolute(args.get("path"))
     folder = export_target(args.get("destination"))
-    if source == "/" or under(source, SPECIAL_ROOTS):
+    if off_limits(asked):
         raise Refused("This location cannot be copied.")
+    # Copy what a link points to, checked above, and name the copy after the link.
+    source = os.path.realpath(asked)
     try:
         info = os.stat(source)
     except OSError as error:
@@ -487,13 +542,14 @@ def export_start(args):
         os.makedirs(folder, exist_ok=True)
     except OSError as error:
         raise Refused(os_message(error))
-    name = os.path.basename(source) + (".zip" if is_folder else "")
+    name = os.path.basename(asked) + (".zip" if is_folder else "")
     job_id = uuid.uuid4().hex
     job = {
         "id": job_id, "state": "running", "source": source, "name": name, "folder": folder,
         "is_folder": is_folder, "bytes_total": None if is_folder else info.st_size,
         "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0, "started": time.time(),
-        "partial": os.path.join(folder, f".{name}.{job_id[:8]}.partial"),
+        # Not named after the file: a long name plus a suffix would exceed NAME_MAX.
+        "partial": os.path.join(folder, f".{job_id}.partial"),
         "cancel": threading.Event(),
     }
     with JOBS_LOCK:

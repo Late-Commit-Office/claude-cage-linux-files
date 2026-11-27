@@ -27,6 +27,9 @@ writeFileSync(join(home, "notes.txt"), "notes\n");
 writeFileSync(join(home, ".profile"), "export X=1\n");
 for (let i = 0; i < 40; i++) writeFileSync(join(home, `file${i}.log`), `line ${i}\n`);
 symlinkSync(join(home, "projects"), join(home, "projects-link"));
+const deep = join(home, "zz-deep", ...Array.from({ length: 14 }, (_, i) => `d${i + 1}`));
+mkdirSync(deep, { recursive: true });
+writeFileSync(join(deep, "bottom.txt"), "bottom\n");
 
 const children = [];
 const cleanup = () => { children.forEach(child => child.kill("SIGKILL")); rmSync(work, { recursive: true, force: true }); };
@@ -390,6 +393,20 @@ await step("dark theme and Chinese strings", async () => {
   await waitFor(() => page(`!!document.querySelector(".details .preview")`), "details");
 });
 await screenshot("5-dark-zh");
+
+await step("a folder 16 levels deep opens and refreshes within the request limit", async () => {
+  await click("#edit-path-btn");
+  await waitFor(() => page(`document.activeElement?.id === "path-input"`), "path input focused");
+  await page(`document.getElementById("path-input").value = ${JSON.stringify(join(deep, "bottom.txt"))}`);
+  await key("Enter");
+  await waitFor(() => page(`document.querySelector(".details h3")?.textContent === "bottom.txt"`), "deep file details");
+  const levels = (await columnNames()).length;
+  assert.ok(levels >= 16, "columns " + levels);
+  assert.equal((await selected()).at(-1), "bottom.txt");
+  await click("#refresh-btn");
+  await waitFor(() => page(`document.querySelector(".details .preview")?.textContent === "bottom\\n"`), "details after refresh");
+  assert.deepEqual(await host("harness.errors"), []);
+});
 
 await step("no page errors and never more than 8 requests in flight", async () => {
   const errors = await host("harness.errors");

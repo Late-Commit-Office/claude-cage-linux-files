@@ -1,14 +1,18 @@
 """Drives linux-files/server.py over stdin/stdout the way the workbench does."""
+import errno
 import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 PLUGIN = Path(__file__).resolve().parent.parent / "linux-files"
 SERVER = PLUGIN / "server.py"
@@ -247,6 +251,47 @@ class ServerTest(unittest.TestCase):
             self.assertTrue(self.server.call("export_start", **arguments)["isError"], arguments)
         self.assertTrue(self.server.call("export_status", job="nope")["isError"])
 
+    def test_double_slash_is_the_root(self):
+        listing = self.server.ok("list_directory", path="//")
+        self.assertEqual((listing["path"], listing["parent"]), ("/", None))
+        self.assertEqual(self.server.ok("list_directory", path="//proc")["parent"], "/")
+        for path in ("//", "//proc/self", "///sys", "//dev/"):
+            self.assertTrue(self.server.call("export_start", path=path, destination=str(self.shared))["isError"], path)
+        self.assertNotIn("preview", self.server.ok("path_details", path="//proc/self/status"))
+
+    def test_links_into_special_places_are_refused(self):
+        os.symlink("/proc/self", self.tree / "to-proc")
+        os.symlink("/proc/self/status", self.tree / "to-status")
+        os.symlink("/", self.tree / "to-root")
+        for name in ("to-proc", "to-status", "to-root"):
+            arguments = dict(path=str(self.tree / name), destination=str(self.shared))
+            self.assertTrue(self.server.call("export_start", **arguments)["isError"], name)
+        self.assertNotIn("preview", self.server.ok("path_details", path=str(self.tree / "to-status")))
+
+    def test_export_link_copies_its_target_under_the_link_name(self):
+        os.symlink("file10.txt", self.tree / "alias.txt")
+        job = self.server.ok("export_start", path=str(self.tree / "alias.txt"), destination=str(self.shared))
+        status = self.wait(job["id"])
+        self.assertEqual(status["result"], str(self.downloads / "alias.txt"))
+        self.assertEqual((self.downloads / "alias.txt").read_text(), "ten\n")
+
+    def test_export_link_to_a_folder_holding_the_destination(self):
+        os.symlink(self.root, self.tree / "up")
+        job = self.server.ok("export_start", path=str(self.tree / "up"), destination=str(self.shared))
+        status = self.wait(job["id"])
+        self.assertEqual(status["state"], "done", status)
+        self.assertEqual(Path(status["result"]).name, "up.zip")
+        with zipfile.ZipFile(status["result"]) as archive:
+            self.assertFalse(any(name.endswith(".partial") for name in archive.namelist()))
+
+    def test_export_long_file_name(self):
+        name = "n" * 250 + ".txt"
+        (self.tree / name).write_text("long\n")
+        job = self.server.ok("export_start", path=str(self.tree / name), destination=str(self.shared))
+        status = self.wait(job["id"])
+        self.assertEqual(status["state"], "done", status)
+        self.assertEqual((self.downloads / name).read_text(), "long\n")
+
     def test_export_cancel(self):
         big = self.tree / "big.bin"
         with open(big, "wb") as file:
@@ -270,9 +315,51 @@ class UnitTest(unittest.TestCase):
             "43 22 0:38 / /mnt/virt rw - virtiofs share rw",
             "44 22 0:5 / /proc rw - proc proc rw",
             "45 22 0:39 / /proc/fake rw - fuse.sshfs sshfs rw",
+            "46 22 0:40 / /Users/me/superblock-ro rw,relatime - fuse.sshfs sshfs ro,user_id=0",
             "garbage line",
         ])
         self.assertEqual(self.module.shared_mounts(mountinfo), ["/Users/me/Cage Work", "/Users/me/project", "/mnt/virt"])
+
+    def test_zip_skips_files_that_vanish_or_fail_to_read(self):
+        module = self.module
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp, "data")
+            folder.mkdir()
+            for name in ("gone.txt", "broken.txt", "fine.txt"):
+                (folder / name).write_text(name)
+
+            class FailingRead(io.BufferedReader):
+                def read(self, *args):
+                    raise OSError(errno.EIO, "Input/output error", self.name)
+
+            real_open = module.open_regular
+
+            def fake_open(path):
+                if path.endswith("gone.txt"):
+                    raise FileNotFoundError(errno.ENOENT, "No such file or directory", path)
+                if path.endswith("broken.txt"):
+                    return FailingRead(io.FileIO(path))
+                return real_open(path)
+
+            job = {"cancel": threading.Event(), "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0}
+            partial = str(Path(temp, ".job.partial"))
+            with mock.patch.object(module, "open_regular", fake_open):
+                module.write_zip(job, str(folder), partial)
+            self.assertEqual((job["files_done"], job["skipped_count"]), (1, 2))
+            with zipfile.ZipFile(partial) as archive:
+                self.assertEqual(archive.read("data/fine.txt"), b"fine.txt")
+
+    def test_open_regular_refuses_links_and_pipes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, "file").write_text("x")
+            os.symlink("file", Path(temp, "link"))
+            os.mkfifo(Path(temp, "pipe"))
+            with self.assertRaises(OSError):
+                self.module.open_regular(str(Path(temp, "link")))
+            with self.assertRaises(OSError):
+                self.module.open_regular(str(Path(temp, "pipe")))  # doesn't block
+            with self.module.open_regular(str(Path(temp, "file"))) as file:
+                self.assertEqual(file.read(), b"x")
 
     def test_suggested_prefers_a_downloads_folder(self):
         folders = [

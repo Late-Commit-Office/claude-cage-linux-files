@@ -7,13 +7,25 @@
 
 const waiting = new Map();
 let nextId = 1;
+// The workbench refuses a page's 9th request in flight; stay well under it so
+// a deep folder (one request per column) or a refresh never hits the limit.
+const MAX_IN_FLIGHT = 4;
+const queued = [];
 
 function request(method, params) {
   return new Promise((resolve, reject) => {
+    queued.push({ method, params, resolve, reject });
+    pump();
+  });
+}
+
+function pump() {
+  while (waiting.size < MAX_IN_FLIGHT && queued.length) {
+    const { method, params, resolve, reject } = queued.shift();
     const id = nextId++;
     waiting.set(id, { resolve, reject });
     window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
-  });
+  }
 }
 
 window.addEventListener("message", event => {
@@ -23,6 +35,7 @@ window.addEventListener("message", event => {
   const pending = waiting.get(message.id);
   if (!pending) return;
   waiting.delete(message.id);
+  pump();
   if (message.error) pending.reject(Object.assign(new Error(message.error.message || "request failed"), { code: message.error.code }));
   else pending.resolve(message.result);
 });
