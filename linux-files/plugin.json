@@ -1,8 +1,8 @@
 {
   "name": "linux-files",
   "displayName": "Linux Files",
-  "version": "0.2.0",
-  "description": "Browse the whole Linux file system in columns, copy any path, and download files or zipped folders to your Mac.",
+  "version": "0.2.1",
+  "description": "Browse the whole Linux file system in columns, copy any path, and download files or zipped folders to your computer.",
   "icon": "icon.svg",
   "engines": { "cage": ">=0.2.1" },
   "kind": "guest",
@@ -25,7 +25,7 @@
       {
         "id": "export-folder",
         "title": "Download folder",
-        "description": "Optional. A folder shared with your Mac, as its path appears in Linux (e.g. /Users/you/Downloads if shared). Downloads are then always saved directly there, overriding the folder chosen in the page. Leave empty to choose in the page (Download folder… in the status bar); downloads then go to the chosen folder's Downloads subfolder.",
+        "description": "Optional. A folder shared with your computer, as its path appears in Linux (e.g. /Users/you/Downloads if shared). Downloads are then always saved directly there, overriding the folder chosen in the page. Leave empty to choose in the page (Download folder… in the status bar); downloads then go to the chosen folder's Downloads subfolder.",
         "type": "string",
         "env": "EXPORT_FOLDER"
       }

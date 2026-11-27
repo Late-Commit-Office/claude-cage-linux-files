@@ -5,7 +5,7 @@ A [Claude Cage](https://github.com/Lee-xeo/Claude-Cage) plugin that adds a **Lin
 - Browse any folder the environment's user can read, from `/` down. Folders come first, sorted naturally, and dotfiles are hidden until you toggle them.
 - See details for any file: kind, size, times, permissions, owner, symlink target, and a text preview of the first 4 KB.
 - **Copy path** or name of any file or folder: right-click it, use the toolbar button, or press ⌘C.
-- **Download to Mac**: a file, or a folder as a `.zip`, is copied into a folder shared with your Mac. By default this is the `Downloads` subfolder of Cage's default workspace, the same place the Cage browser saves downloads. You confirm every download.
+- **Download to computer**: a file, or a folder as a `.zip`, is copied into a folder shared with your computer. By default this is the `Downloads` subfolder of Cage's default workspace, the same place the Cage browser saves downloads. You confirm every download.
 
 The plugin is `kind: "guest"`: it runs inside the environment, needs no permissions and shows no approval prompts. All of its tools are page-only (`_meta.ui.visibility: ["app"]`), so Claude never sees or calls them.
 
@@ -42,16 +42,16 @@ To update, pull and run the script again, then **Reload**.
 | Open a folder | Click it; its contents open in the next column |
 | Move | ↑ ↓ within a column, → into a folder, ← back; type letters to jump to a name |
 | Go to a path | Click the empty part of the path bar, the ✎ button or press ⌘L; type a path (`~` works) and press Enter |
-| Start from a place | Sidebar: Home, Root, or a folder shared with your Mac |
+| Start from a place | Sidebar: Home, Root, or a folder shared with your computer |
 | Hidden files | 👁 button or ⌘⇧. |
 | Copy path or name | Right-click, the **Copy path** button, or ⌘C |
-| Download to Mac | Right-click → **Download to Mac**, or the toolbar button |
+| Download to computer | Right-click → **Download to computer**, or the toolbar button |
 | Download somewhere else once | Right-click → **Download to…** (asks even if a folder is remembered) |
 | Change or forget the download folder | **Download folder…** in the status bar |
 
 **Where downloads go.**
 
-- **Choosing a folder.** Each download asks you to pick from the folders shared with your Mac. Picking one and clicking **Download** is the only confirmation. The suggested folder, which already has a `Downloads` folder, is preselected; that's normally Cage's default workspace.
+- **Choosing a folder.** Each download asks you to pick from the folders shared with your computer. Picking one and clicking **Download** is the only confirmation. The suggested folder, which already has a `Downloads` folder, is preselected; that's normally Cage's default workspace.
 - **Remembering it.** Tick **Remember this folder and don't ask again** and later downloads go straight there, after one confirm that names the folder.
 - **Changing it.** **Download folder…** in the status bar switches to another folder or back to **Ask every time**. The remembered choice is kept in `~/.config/linux-files/preferences.json` in the Linux environment, and it's ignored while that folder isn't shared (for example after closing a project).
 - **Fixing one folder for good.** Set **Download folder** in the plugin's settings (Plugins → Linux Files → Settings) to a shared folder's path as Linux sees it. It overrides the choice made in the page, and files go straight into it rather than a `Downloads` subfolder. A plugin can't write its own settings in Cage 0.2.1, so the page can't fill this in for you.
@@ -64,7 +64,7 @@ linux-files/
 ├── plugin.json      guest plugin: one MCP server, one page, one optional setting
 ├── server.py        MCP server on stdin/stdout (Python 3 standard library only)
 ├── view/            the page: index.html, app.js, style.css
-├── i18n.json        marketplace descriptions (zh-CN, zh-TW)
+├── i18n.json        marketplace name and description in all 15 Cage languages
 └── icon.svg
 ```
 
@@ -74,7 +74,7 @@ The page runs in Cage's sandboxed frame. It talks to the workbench over `postMes
 |---|---|
 | `list_directory` | One folder, paged (300 entries per page, up to 50,000 read) |
 | `path_details` | `stat`, owner, symlink target, item count, text preview |
-| `places` | Home, `/`, the writable folders shared with the Mac (found in `/proc/self/mountinfo`: `fuse.sshfs`, `virtiofs`, `9p`), and the remembered download folder |
+| `places` | Home, `/`, the writable folders shared with the computer (found in `/proc/self/mountinfo`: `fuse.sshfs`, `virtiofs`, `9p`), and the remembered download folder |
 | `remember_destination` | Save a shared folder as the download folder, or `null` to ask every time |
 | `export_start` / `export_status` / `export_cancel` | Background copy into the shared folder, written to a hidden `.partial` file and renamed when complete |
 
@@ -90,7 +90,7 @@ node tests/e2e.mjs [--screenshots DIR]            # the page in headless Chromiu
 python3 dev/serve.py --shared /tmp/a --shared /tmp/b   # try the page at http://127.0.0.1:8765/
 ```
 
-`--shared` pretends folders are shared with the Mac, in place of the real mounts, so test downloads never touch real shared folders. `--export-folder` sets the plugin setting instead. `dev/serve.py` and `dev/harness.*` stand in for the Cage workbench. They frame the page with the same sandbox and CSP, answer the page protocol with Cage's limits (8 requests in flight, 1 MiB per message), and relay tool calls to a real `server.py`. Add `?scheme=dark` or `?locale=zh-CN` to the URL to switch theme or language.
+`--shared` pretends folders are shared with the computer, in place of the real mounts, so test downloads never touch real shared folders. `--export-folder` sets the plugin setting instead. `dev/serve.py` and `dev/harness.*` stand in for the Cage workbench. They frame the page with the same sandbox and CSP, answer the page protocol with Cage's limits (8 requests in flight, 1 MiB per message), and relay tool calls to a real `server.py`. Add `?scheme=dark` or `?locale=zh-CN` to the URL to switch theme or language.
 
 `tests/test_manifest.py` re-checks the rules Cage enforces when it loads a plugin (`docs/plugins.md` and `internal/hostbridge` in Claude-Cage v0.2.1). That includes the reserved words, such as the product name and "VM", that tool names, descriptions and schemas must not contain.
 

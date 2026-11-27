@@ -81,7 +81,7 @@ def main():
     parser.add_argument("--export-folder", default="")
     parser.add_argument("--home", default="")
     parser.add_argument("--shared", action="append", default=[],
-                        help="pretend this folder is shared with the Mac (repeatable); replaces the real mounts")
+                        help="pretend this folder is shared with the computer (repeatable); replaces the real mounts")
     args = parser.parse_args()
     env = {key: os.environ[key] for key in ("PATH", "LANG", "LC_ALL", "TZ", "USER", "LOGNAME", "SHELL") if key in os.environ}
     env["HOME"] = args.home or os.path.expanduser("~")

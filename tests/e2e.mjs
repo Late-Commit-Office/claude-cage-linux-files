@@ -239,7 +239,7 @@ await step("first download: the picker asks, suggests the default workspace, and
   assert.match(await page(`document.getElementById("dest-label").textContent`), /ask every time/);
   await click("#download-btn");
   await waitFor(() => visible("modal"), "picker");
-  assert.equal(await page(`document.getElementById("modal-title").textContent`), "Download “README.md” to Mac");
+  assert.equal(await page(`document.getElementById("modal-title").textContent`), "Download “README.md” to your computer");
   assert.equal(await page(`document.querySelector(".option.chosen .path").textContent`), downloads, "workspace with Downloads preselected");
   assert.equal(await page(`document.querySelectorAll(".option").length`), 2);
   assert.ok(await visible("remember-row"));
@@ -257,7 +257,7 @@ await step("first download: the picker asks, suggests the default workspace, and
 await step("not remembered: the next download asks again; remembering picks the other folder", async () => {
   await click(rowSel(0, "projects"), "right");
   await waitFor(() => visible("menu"), "menu");
-  await click("#menu button:nth-last-child(2)");  // Download to Mac
+  await click("#menu button:nth-last-child(2)");  // Download to computer
   await waitFor(() => visible("modal"), "picker again");
   await click(`.option:nth-child(2)`);  // shared2
   await click("#remember-box");
@@ -359,7 +359,7 @@ await open("?scheme=dark&locale=zh-CN");
 await step("dark theme and Chinese strings", async () => {
   await waitFor(async () => (await columnNames())[0]?.length > 0, "listing");
   assert.equal(await page(`document.documentElement.dataset.scheme`), "dark");
-  assert.equal(await page(`document.getElementById("download-btn").textContent`), "下载到 Mac");
+  assert.equal(await page(`document.getElementById("download-btn").textContent`), "下载到电脑");
   await click(rowSel(0, "projects"));
   await waitFor(async () => (await columnNames())[1]?.includes("demo"), "projects column");
   await click(rowSel(1, "demo"));

@@ -1,5 +1,5 @@
 # MCP server for the Linux Files page: lists folders, describes files and
-# copies files or zipped folders into a folder shared with the user's Mac.
+# copies files or zipped folders into a folder shared with the user's computer.
 # Every tool is for the plugin's own page only (_meta.ui.visibility: ["app"]).
 # Standard input and output carry newline-delimited JSON-RPC; Python's
 # standard library only.
@@ -16,7 +16,7 @@ import time
 import uuid
 import zipfile
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 PAGE_ONLY = {"ui": {"visibility": ["app"]}}
 MAX_SCAN = 50000          # entries read from one folder before giving up
 DEFAULT_LIMIT = 300
