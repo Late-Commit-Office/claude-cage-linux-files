@@ -74,8 +74,20 @@ class ServerTest(unittest.TestCase):
         self.tree = tree
         self.shared = self.root / "shared"
         self.shared.mkdir()
-        self.server = Server({"EXPORT_FOLDER": str(self.shared)})
-        self.server.send("initialize", {"protocolVersion": "2025-06-18"})
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.mountinfo = self.root / "mountinfo"
+        self.mountinfo.write_text("")  # no real shares: only what a test declares
+        self.server = self.start({"EXPORT_FOLDER": str(self.shared)})
+
+    def start(self, env):
+        server = Server({"HOME": str(self.home), "LINUX_FILES_MOUNTINFO": str(self.mountinfo), **env})
+        server.send("initialize", {"protocolVersion": "2025-06-18"})
+        return server
+
+    def share(self, *folders):
+        self.mountinfo.write_text("".join(f"{50 + i} 1 0:{50 + i} / {folder} rw - fuse.sshfs sshfs rw\n"
+                                          for i, folder in enumerate(folders)))
 
     def tearDown(self):
         self.server.close()
@@ -84,7 +96,8 @@ class ServerTest(unittest.TestCase):
     def test_tools_are_page_only(self):
         tools = self.server.send("tools/list")["result"]["tools"]
         names = {tool["name"] for tool in tools}
-        self.assertEqual(names, {"list_directory", "path_details", "places", "export_start", "export_status", "export_cancel"})
+        self.assertEqual(names, {"list_directory", "path_details", "places", "remember_destination",
+                                 "export_start", "export_status", "export_cancel"})
         for tool in tools:
             self.assertEqual(tool["_meta"]["ui"]["visibility"], ["app"], tool["name"])
 
@@ -149,6 +162,53 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(places["root"], "/")
         self.assertEqual(places["shared"][0], {"path": str(self.shared), "source": "setting", "writable": True, "has_downloads": False})
         self.assertEqual(places["suggested"], str(self.shared))
+        self.assertEqual((places["remembered"], places["remembered_source"]), (str(self.shared), "setting"))
+
+    def test_remember_forget_and_restart(self):
+        self.server.close()
+        one, two = self.root / "one", self.root / "two"
+        (one / "Downloads").mkdir(parents=True)
+        two.mkdir()
+        self.share(one, two)
+        self.server = self.start({})
+        places = self.server.ok("places")
+        self.assertEqual([folder["path"] for folder in places["shared"]], [str(one), str(two)])
+        self.assertEqual((places["remembered"], places["suggested"]), (None, str(one)))
+        places = self.server.ok("remember_destination", destination=str(two))
+        self.assertEqual((places["remembered"], places["remembered_source"]), (str(two), "saved"))
+        self.assertTrue((self.home / ".config" / "linux-files" / "preferences.json").is_file())
+        self.server.close()
+        self.server = self.start({})
+        self.assertEqual(self.server.ok("places")["remembered"], str(two))  # survives a restart
+        job = self.server.ok("export_start", path=str(self.tree / "file2.txt"), destination=str(two))
+        self.assertEqual(self.wait(job["id"])["result"], str(two / "Downloads" / "file2.txt"))
+        self.assertTrue(self.server.call("remember_destination", destination=str(self.tree))["isError"])  # not shared
+        self.assertTrue(self.server.call("remember_destination")["isError"])  # forgetting must be explicit
+        self.assertEqual(self.server.ok("places")["remembered"], str(two))
+        self.assertIsNone(self.server.ok("remember_destination", destination=None)["remembered"])
+        self.assertIsNone(self.server.ok("places")["remembered"])
+
+    def test_saved_folder_that_is_no_longer_shared_is_ignored(self):
+        self.server.close()
+        one = self.root / "one"
+        one.mkdir()
+        self.share(one)
+        self.server = self.start({})
+        self.server.ok("remember_destination", destination=str(one))
+        self.share()  # the project was closed
+        self.assertIsNone(self.server.ok("places")["remembered"])
+
+    def test_setting_wins_over_saved_choice(self):
+        self.server.close()
+        one = self.root / "one"
+        one.mkdir()
+        self.share(one)
+        self.server = self.start({})
+        self.server.ok("remember_destination", destination=str(one))
+        self.server.close()
+        self.server = self.start({"EXPORT_FOLDER": str(self.shared)})
+        places = self.server.ok("places")
+        self.assertEqual((places["remembered"], places["remembered_source"]), (str(self.shared), "setting"))
 
     def wait(self, job):
         for _ in range(200):

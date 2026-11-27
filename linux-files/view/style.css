@@ -271,8 +271,12 @@ button { font: inherit; color: inherit; }
 .jobs { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 12px; }
 .job.failed { color: var(--danger); }
 .job.done { color: var(--success); }
-.dest { margin-left: auto; display: flex; gap: 6px; min-width: 0; }
-.dest-label { overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; max-width: 360px; }
+.jobs { flex: 0 1 auto; }
+.dest { margin-left: auto; display: flex; gap: 6px; min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
+.dest-label { display: flex; min-width: 0; max-width: 420px; }
+.dest-prefix { flex: none; white-space: pre; }
+.dest-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.dest-btn, #dest-btn { flex: none; }
 
 /* ------------------------------------------------------------ menu and modal */
 .menu {
@@ -333,4 +337,9 @@ button { font: inherit; color: inherit; }
 .option:disabled { opacity: 0.5; cursor: default; }
 .option .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
 .option .hint { color: var(--muted); font-size: 11px; }
+.remember { display: flex; align-items: center; gap: 8px; cursor: pointer; margin: -4px 0 4px; }
+.remember input { margin: 0; accent-color: var(--accent); }
+.modal-hint { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+.modal-hint:empty { display: none; }
+.option.ask .path { font-family: inherit; font-size: 13px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }

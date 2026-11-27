@@ -16,7 +16,7 @@ import time
 import uuid
 import zipfile
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 PAGE_ONLY = {"ui": {"visibility": ["app"]}}
 MAX_SCAN = 50000          # entries read from one folder before giving up
 DEFAULT_LIMIT = 300
@@ -51,6 +51,9 @@ TOOLS = [
          {"path": PATH}, ["path"]),
     tool("places", "Starting points: the home folder, the root folder and the folders shared with the user's computer.",
          {}),
+    tool("remember_destination", "Remember the shared folder that downloads go to, or forget it so the page asks each time.",
+         {"destination": {"type": ["string", "null"], "description": "A shared folder returned by places, or null to forget."}},
+         ["destination"]),
     tool("export_start", "Copy a file, or a folder as a zip archive, into the Downloads folder of a shared folder.",
          {"path": PATH,
           "destination": {"type": "string", "description": "A shared folder returned by places."}},
@@ -274,8 +277,11 @@ def shared_mounts(mountinfo):
 
 
 def read_mountinfo():
+    # LINUX_FILES_MOUNTINFO is for tests only: Cage starts guest plugins with a
+    # fixed environment (HOME, USER, PATH, … and declared settings), never this.
+    source = os.environ.get("LINUX_FILES_MOUNTINFO") or "/proc/self/mountinfo"
     try:
-        with open("/proc/self/mountinfo", encoding="utf-8", errors="replace") as file:
+        with open(source, encoding="utf-8", errors="replace") as file:
             return file.read()
     except OSError:
         return ""
@@ -312,11 +318,64 @@ def suggested(folders):
     return None
 
 
+def preferences_path():
+    return os.path.join(os.path.expanduser("~"), ".config", "linux-files", "preferences.json")
+
+
+def load_preferences():
+    try:
+        with open(preferences_path(), encoding="utf-8") as file:
+            data = json.load(file)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_preferences(data):
+    path = preferences_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2)
+        file.write("\n")
+    os.replace(temporary, path)
+
+
+def remembered(folders):
+    """The folder downloads go to without asking: the plugin setting wins over a saved choice."""
+    usable = {folder["path"]: folder for folder in folders if folder["writable"]}
+    setting = configured_folder()
+    if setting:
+        return (setting, "setting") if setting in usable else (None, None)
+    saved = load_preferences().get("download_folder")
+    if isinstance(saved, str) and saved in usable:
+        return saved, "saved"
+    return None, None
+
+
 def places(_args):
     folders = shared_folders()
     home = os.path.expanduser("~")
+    folder, source = remembered(folders)
     return {"home": home, "root": "/", "shared": folders, "suggested": suggested(folders),
-            "export_subfolder": EXPORT_SUBFOLDER}
+            "remembered": folder, "remembered_source": source, "export_subfolder": EXPORT_SUBFOLDER}
+
+
+def remember_destination(args):
+    if "destination" not in args:
+        raise Refused("Give a shared folder, or null to forget the saved one.")
+    destination = args["destination"]
+    preferences = load_preferences()
+    if destination is None:
+        preferences.pop("download_folder", None)
+    else:
+        export_target(destination)  # refuses folders that are not shared and writable
+        preferences["download_folder"] = destination
+    try:
+        save_preferences(preferences)
+    except OSError as error:
+        raise Refused(os_message(error))
+    return places({})
 
 
 # ---------------------------------------------------------------- export
@@ -492,6 +551,7 @@ HANDLERS = {
     "list_directory": list_directory,
     "path_details": path_details,
     "places": places,
+    "remember_destination": remember_destination,
     "export_start": export_start,
     "export_status": export_status,
     "export_cancel": export_cancel,

@@ -150,6 +150,49 @@ const STRINGS = {
   },
 };
 
+Object.assign(STRINGS.en, {
+  destButton: "Download folder…", destAsk: "Downloads: ask every time", downloadTo: "Download to…",
+  remember: "Remember this folder and don't ask again",
+  rememberHint: "You can change it later with “Download folder…” in the status bar. To fix one folder for good, set “Download folder” in this plugin's settings (Plugins → Linux Files → Settings).",
+  downloadTitle: name => `Download “${name}” to Mac`,
+  downloadTextFile: sub => `Choose a folder shared with your Mac. The file is saved in its “${sub}” subfolder.`,
+  downloadTextFolder: sub => `Choose a folder shared with your Mac. The folder is zipped and saved in its “${sub}” subfolder; unreadable files are skipped.`,
+  downloadOk: "Download", save: "Save", folderTitle: "Download folder",
+  folderText: "Where should downloads go? Choose a folder to use without asking, or have each download ask.",
+  askEveryTime: "Ask every time", askEveryTimeHint: "Choose a folder for each download",
+  settingLocked: "The folder is set in this plugin's settings (Plugins → Linux Files → Settings). Clear it there to choose here again.",
+  confirmHint: "Change the folder with “Download folder…” in the status bar.",
+  rememberedTag: "Current",
+});
+Object.assign(STRINGS["zh-CN"], {
+  destButton: "下载位置…", destAsk: "下载位置：每次询问", downloadTo: "下载到…",
+  remember: "记住这个文件夹，以后不再询问",
+  rememberHint: "之后可在状态栏的“下载位置…”中更改。如需固定使用某个文件夹，请在本插件的设置中填写“Download folder”（插件 → Linux 文件 → 设置）。",
+  downloadTitle: name => `把“${name}”下载到 Mac`,
+  downloadTextFile: sub => `选择一个与 Mac 共享的文件夹，文件会保存到其中的“${sub}”子文件夹。`,
+  downloadTextFolder: sub => `选择一个与 Mac 共享的文件夹，文件夹会压缩后保存到其中的“${sub}”子文件夹；无法读取的文件会被跳过。`,
+  downloadOk: "下载", save: "保存", folderTitle: "下载位置",
+  folderText: "下载保存到哪里？选择一个文件夹后直接使用，或者每次下载时询问。",
+  askEveryTime: "每次询问", askEveryTimeHint: "每次下载时选择文件夹",
+  settingLocked: "下载位置已在本插件的设置中指定（插件 → Linux 文件 → 设置）。在那里清空后，才能在这里重新选择。",
+  confirmHint: "可在状态栏的“下载位置…”中更改文件夹。",
+  rememberedTag: "当前",
+});
+Object.assign(STRINGS["zh-TW"], {
+  destButton: "下載位置…", destAsk: "下載位置：每次詢問", downloadTo: "下載到…",
+  remember: "記住這個資料夾，以後不再詢問",
+  rememberHint: "之後可在狀態列的「下載位置…」中變更。如需固定使用某個資料夾，請在本外掛的設定中填寫「Download folder」（外掛 → Linux 檔案 → 設定）。",
+  downloadTitle: name => `把「${name}」下載到 Mac`,
+  downloadTextFile: sub => `選擇一個與 Mac 共享的資料夾，檔案會存到其中的「${sub}」子資料夾。`,
+  downloadTextFolder: sub => `選擇一個與 Mac 共享的資料夾，資料夾會壓縮後存到其中的「${sub}」子資料夾；無法讀取的檔案會被略過。`,
+  downloadOk: "下載", save: "儲存", folderTitle: "下載位置",
+  folderText: "下載要存到哪裡？選擇一個資料夾後直接使用，或者每次下載時詢問。",
+  askEveryTime: "每次詢問", askEveryTimeHint: "每次下載時選擇資料夾",
+  settingLocked: "下載位置已在本外掛的設定中指定（外掛 → Linux 檔案 → 設定）。在那裡清空後，才能在這裡重新選擇。",
+  confirmHint: "可在狀態列的「下載位置…」中變更資料夾。",
+  rememberedTag: "目前",
+});
+
 let locale = "en";
 let strings = STRINGS.en;
 
@@ -271,7 +314,6 @@ const state = {
   details: null,    // {path, data, error, el}
   active: 0,        // index of the column the keyboard moves in
   showHidden: false,
-  exportDest: null,
   places: null,
   jobs: new Map(),
 };
@@ -291,7 +333,7 @@ function currentPath() {
 function persist() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const saved = { root: state.root, path: currentPath(), showHidden: state.showHidden, exportDest: state.exportDest };
+    const saved = { root: state.root, path: currentPath(), showHidden: state.showHidden };
     request("ui/setState", { state: saved }).catch(() => {});
   }, 400);
 }
@@ -583,11 +625,19 @@ function updateCrumbs() {
 function updateStatus() {
   const column = state.columns[state.active] || state.columns[state.columns.length - 1];
   $("status-count").textContent = column && !column.loading && !column.error ? t("items", column.total, state.showHidden ? 0 : column.hiddenCount) : "";
-  const dest = state.exportDest;
-  const sub = state.places && state.places.shared.find(folder => folder.path === dest);
-  const shown = dest ? (sub && sub.source === "setting" ? dest : joinPath(dest, (state.places && state.places.export_subfolder) || "Downloads")) : null;
-  $("dest-label").textContent = shown ? t("dest", shown) : t("destNone");
-  $("dest-label").title = shown || "";
+  const places = state.places;
+  const folder = places && places.remembered && places.shared.find(item => item.path === places.remembered);
+  const shown = folder ? shownFolder(folder) : null;
+  const label = $("dest-label");
+  if (shown) {
+    // "Downloads → " stays whole; a long path is shortened from its start.
+    const prefix = t("dest", "");
+    // Left-to-right marks keep the leading "/" in place inside the rtl box.
+    label.replaceChildren(el("span", "dest-prefix", prefix), el("span", "dest-path", "‎" + shown + "‎"));
+  } else {
+    label.replaceChildren(el("span", "dest-prefix", t("destAsk")));
+  }
+  label.title = shown || "";
 }
 
 function renderPlaces() {
@@ -654,6 +704,7 @@ function showMenu(x, y, path, folder) {
   menu.appendChild(el("hr"));
   if (folder) item(t("openHere"), () => openPath(path, path));
   item(t("download"), () => startExport(path));
+  item(t("downloadTo"), () => startExport(path, { ask: true }));
   menu.hidden = false;
   const box = menu.getBoundingClientRect();
   menu.style.left = Math.min(x, window.innerWidth - box.width - 6) + "px";
@@ -804,36 +855,70 @@ function toggleHidden() {
 
 let modalResolve = null;
 
-function chooseDestination() {
+function shownFolder(folder) {
+  const sub = state.places.export_subfolder || "Downloads";
+  return folder.source === "setting" ? folder.path : joinPath(folder.path, sub);
+}
+
+// mode "download": pick a folder for one download, optionally remembering it.
+// mode "folder": choose the remembered folder, or "ask every time" (null).
+// Resolves {path, remember} or null when cancelled.
+function chooseDestination(mode, item) {
   return new Promise(resolve => {
     const places = state.places;
+    const sub = places.export_subfolder || "Downloads";
     const list = $("modal-list");
     list.replaceChildren();
-    let chosen = state.exportDest || places.suggested;
-    const sub = places.export_subfolder || "Downloads";
-    $("modal-text").textContent = places.shared.length ? t("pickText", sub) : t("pickNone");
-    for (const folder of places.shared) {
-      const option = el("button", "option");
+    const locked = mode === "folder" && places.remembered_source === "setting";
+    const writable = places.shared.filter(folder => folder.writable);
+    let chosen = mode === "folder" ? places.remembered : (places.remembered || places.suggested);
+    if (mode === "download" && !writable.some(folder => folder.path === chosen)) chosen = writable[0] ? writable[0].path : null;
+    $("modal-title").textContent = mode === "download" ? t("downloadTitle", item.name) : t("folderTitle");
+    $("modal-text").textContent = !places.shared.length ? t("pickNone")
+      : locked ? t("settingLocked")
+      : mode === "download" ? (item.isDir ? t("downloadTextFolder", sub) : t("downloadTextFile", sub))
+      : t("folderText");
+    const choose = (path, option) => {
+      chosen = path;
+      list.querySelectorAll(".option").forEach(node => node.classList.toggle("chosen", node === option));
+    };
+    const addOption = (path, label, hint, enabled, className) => {
+      const option = el("button", "option" + (className ? " " + className : ""));
       option.type = "button";
-      option.dataset.path = folder.path;
-      option.disabled = !folder.writable;
-      option.appendChild(el("span", "path", folder.source === "setting" ? folder.path : joinPath(folder.path, sub)));
-      const hint = !folder.writable ? t("notWritable") : folder.source === "setting" ? t("fromSetting") : folder.has_downloads ? t("likelyDefault") : "";
+      option.disabled = !enabled || locked;
+      option.appendChild(el("span", "path", label));
       if (hint) option.appendChild(el("span", "hint", hint));
-      option.addEventListener("click", () => {
-        chosen = folder.path;
-        list.querySelectorAll(".option").forEach(node => node.classList.toggle("chosen", node === option));
-      });
-      option.addEventListener("dblclick", () => { chosen = folder.path; closeModal(chosen); });
-      if (folder.path === chosen) option.classList.add("chosen");
+      option.addEventListener("click", () => choose(path, option));
+      option.addEventListener("dblclick", () => { choose(path, option); finish(); });
+      if (path === chosen) option.classList.add("chosen");
       list.appendChild(option);
+    };
+    if (mode === "folder" && !locked) addOption(null, t("askEveryTime"), t("askEveryTimeHint"), true, "ask");
+    for (const folder of places.shared) {
+      const hints = [];
+      if (folder.path === places.remembered) hints.push(t("rememberedTag"));
+      if (!folder.writable) hints.push(t("notWritable"));
+      else if (folder.source === "setting") hints.push(t("fromSetting"));
+      else if (folder.has_downloads && folder.path === places.suggested) hints.push(t("likelyDefault"));
+      addOption(folder.path, shownFolder(folder), hints.join(" · "), folder.writable);
     }
-    $("modal-ok").disabled = !places.shared.some(folder => folder.writable);
-    $("modal-ok").onclick = () => closeModal(chosen);
+    const box = $("remember-box");
+    box.checked = false;
+    $("remember-row").hidden = mode !== "download" || !writable.length;
+    $("modal-hint").textContent = mode === "download" && writable.length ? t("rememberHint") : "";
+    const ok = $("modal-ok");
+    ok.textContent = mode === "download" ? t("downloadOk") : t("save");
+    ok.hidden = locked;
+    ok.disabled = mode === "download" && !writable.length;
+    const finish = () => {
+      if (mode === "download" && !chosen) return;
+      closeModal({ path: chosen, remember: mode === "download" ? box.checked : true });
+    };
+    ok.onclick = finish;
     $("modal-cancel").onclick = () => closeModal(null);
     modalResolve = resolve;
     $("modal").hidden = false;
-    (list.querySelector(".option.chosen") || $("modal-cancel")).focus();
+    (list.querySelector(".option.chosen:not(:disabled)") || (ok.hidden ? $("modal-cancel") : ok)).focus();
   });
 }
 
@@ -848,7 +933,6 @@ function closeModal(value) {
 async function refreshPlaces() {
   try {
     state.places = await tool("places", {});
-    if (state.exportDest && !state.places.shared.some(folder => folder.path === state.exportDest && folder.writable)) state.exportDest = null;
     renderPlaces();
     updateStatus();
   } catch (error) {
@@ -856,24 +940,28 @@ async function refreshPlaces() {
   }
 }
 
-async function pickDestination() {
-  await refreshPlaces();
-  const chosen = await chooseDestination();
-  if (chosen) {
-    state.exportDest = chosen;
+async function remember(path) {
+  try {
+    state.places = await tool("remember_destination", { destination: path });
     updateStatus();
-    persist();
+  } catch (error) {
+    notify(error.message, "error");
   }
-  return chosen;
 }
 
-async function startExport(path) {
+// The status bar's "Download folder…": remember a folder, or ask every time.
+async function pickDestination() {
+  await refreshPlaces();
+  if (!state.places) return;
+  const choice = await chooseDestination("folder");
+  if (choice && choice.path !== state.places.remembered) await remember(choice.path);
+}
+
+// ask: choose a folder for this download even when one is remembered.
+async function startExport(path, options) {
   hideMenu();
   await refreshPlaces();
-  const dest = state.exportDest || await pickDestination();
-  if (!dest) return;
-  const folder = state.places.shared.find(item => item.path === dest);
-  const shown = folder && folder.source === "setting" ? dest : joinPath(dest, state.places.export_subfolder || "Downloads");
+  if (!state.places) return;
   let isDir = false;
   try {
     const info = await tool("path_details", { path });
@@ -883,16 +971,28 @@ async function startExport(path) {
     return;
   }
   const name = baseName(path);
-  try {
-    const answer = await request("ui/confirm", {
-      title: t("confirmTitle"),
-      message: (isDir ? t("confirmFolder", name, shown) : t("confirmFile", name, shown)).slice(0, 2000),
-      confirmLabel: t("confirmOk"),
-    });
-    if (!answer || !answer.confirmed) return;
-  } catch (error) {
-    if (error.code !== -32001) notify(error.message, "error");
-    return;
+  let dest = options && options.ask ? null : state.places.remembered;
+  if (dest) {
+    // A remembered folder: one confirm, which says where the file goes and how to change it.
+    const folder = state.places.shared.find(item => item.path === dest);
+    const shown = folder ? shownFolder(folder) : dest;
+    try {
+      const answer = await request("ui/confirm", {
+        title: t("confirmTitle"),
+        message: ((isDir ? t("confirmFolder", name, shown) : t("confirmFile", name, shown)) + "\n\n" + t("confirmHint")).slice(0, 2000),
+        confirmLabel: t("confirmOk"),
+      });
+      if (!answer || !answer.confirmed) return;
+    } catch (error) {
+      if (error.code !== -32001) notify(error.message, "error");
+      return;
+    }
+  } else {
+    // No remembered folder: the picker is the confirmation.
+    const choice = await chooseDestination("download", { name, isDir });
+    if (!choice) return;
+    dest = choice.path;
+    if (choice.remember) await remember(dest);
   }
   try {
     const job = await tool("export_start", { path, destination: dest });
@@ -1000,7 +1100,6 @@ async function start() {
   decorate();
   const saved = init.state && typeof init.state === "object" ? init.state : {};
   state.showHidden = Boolean(saved.showHidden);
-  state.exportDest = typeof saved.exportDest === "string" ? saved.exportDest : null;
   $("hidden-btn").setAttribute("aria-pressed", String(state.showHidden));
   await refreshPlaces();
   if (!state.places) {

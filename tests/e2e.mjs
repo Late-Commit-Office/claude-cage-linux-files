@@ -17,8 +17,10 @@ if (!browserPath) throw new Error("no Chromium found");
 const work = mkdtempSync(join(tmpdir(), "linux-files-e2e-"));
 const home = join(work, "home");
 const shared = join(work, "shared");
+const shared2 = join(work, "shared two");
 mkdirSync(join(home, "projects", "demo", "src"), { recursive: true });
-mkdirSync(shared);
+mkdirSync(join(shared, "Downloads"), { recursive: true });
+mkdirSync(shared2);
 writeFileSync(join(home, "projects", "demo", "README.md"), "# Demo\n\nHello from the fixture.\n");
 writeFileSync(join(home, "projects", "demo", "src", "main.py"), "print('hi')\n");
 writeFileSync(join(home, "notes.txt"), "notes\n");
@@ -44,7 +46,7 @@ function waitForLine(child, pattern) {
   });
 }
 
-const server = spawn("python3", ["-B", join(repo, "dev", "serve.py"), "--port", "0", "--home", home, "--export-folder", shared], { encoding: "utf8" });
+const server = spawn("python3", ["-B", join(repo, "dev", "serve.py"), "--port", "0", "--home", home, "--shared", shared, "--shared", shared2], { encoding: "utf8" });
 children.push(server);
 server.stdout.setEncoding("utf8");
 const [base] = await waitForLine(server, /http:\/\/127\.0\.0\.1:\d+\//);
@@ -228,40 +230,86 @@ await step("⌘C copies the current path", async () => {
   await waitFor(async () => (await host("harness.copied")).includes(join(home, "projects", "demo")), "copied with ⌘C");
 });
 
-await step("download a file: pick destination, confirm, file lands in the shared folder", async () => {
+const downloads = join(shared, "Downloads");
+const visible = id => page(`!document.getElementById(${JSON.stringify(id)}).hidden`);
+
+await step("first download: the picker asks, suggests the default workspace, and is the only prompt", async () => {
   await click(rowSel(2, "README.md"));
   await waitFor(() => page(`!!document.querySelector(".details .preview")`), "details");
+  assert.match(await page(`document.getElementById("dest-label").textContent`), /ask every time/);
   await click("#download-btn");
-  await waitFor(() => page(`!document.getElementById("modal").hidden`), "destination picker");
-  assert.ok(await page(`document.querySelector(".option.chosen .path")?.textContent === ${JSON.stringify(shared)}`), "the setting is preselected");
+  await waitFor(() => visible("modal"), "picker");
+  assert.equal(await page(`document.getElementById("modal-title").textContent`), "Download “README.md” to Mac");
+  assert.equal(await page(`document.querySelector(".option.chosen .path").textContent`), downloads, "workspace with Downloads preselected");
+  assert.equal(await page(`document.querySelectorAll(".option").length`), 2);
+  assert.ok(await visible("remember-row"));
+  assert.equal(await page(`document.getElementById("remember-box").checked`), false);
+  assert.match(await page(`document.getElementById("modal-hint").textContent`), /Download folder…/);
   await screenshot("4-picker");
   await click("#modal-ok");
-  await waitFor(() => existsSync(join(shared, "README.md")), "exported file");
-  assert.equal(readFileSync(join(shared, "README.md"), "utf8"), "# Demo\n\nHello from the fixture.\n");
-  const confirms = await host("harness.confirms");
-  assert.match(confirms.at(-1).message, /README\.md/);
+  await waitFor(() => existsSync(join(downloads, "README.md")), "exported file");
+  assert.equal(readFileSync(join(downloads, "README.md"), "utf8"), "# Demo\n\nHello from the fixture.\n");
+  assert.equal((await host("harness.confirms")).length, 0, "no second prompt");
   await waitFor(() => page(`document.getElementById("jobs").textContent.includes("Saved")`), "job done in status bar");
-  assert.match(await page(`document.getElementById("dest-label").textContent`), new RegExp(shared.replace(/[/.]/g, "\\$&")));
+  assert.match(await page(`document.getElementById("dest-label").textContent`), /ask every time/, "not remembered");
 });
 
-await step("download a folder as zip without asking for the destination again", async () => {
+await step("not remembered: the next download asks again; remembering picks the other folder", async () => {
   await click(rowSel(0, "projects"), "right");
-  await waitFor(() => page(`!document.getElementById("menu").hidden`), "menu");
-  await click("#menu button:last-child");
-  await waitFor(() => existsSync(join(shared, "projects.zip")), "exported zip");
-  assert.ok(await page(`document.getElementById("modal").hidden`));
+  await waitFor(() => visible("menu"), "menu");
+  await click("#menu button:nth-last-child(2)");  // Download to Mac
+  await waitFor(() => visible("modal"), "picker again");
+  await click(`.option:nth-child(2)`);  // shared2
+  await click("#remember-box");
+  assert.equal(await page(`document.getElementById("remember-box").checked`), true);
+  await click("#modal-ok");
+  await waitFor(() => existsSync(join(shared2, "Downloads", "projects.zip")), "zip in the chosen folder");
+  await waitFor(() => page(`document.getElementById("dest-label").textContent.includes(${JSON.stringify(join(shared2, "Downloads"))})`), "remembered in status bar");
+  assert.ok(existsSync(join(home, ".config", "linux-files", "preferences.json")));
 });
 
-await step("declining the confirm exports nothing", async () => {
+await step("remembered: no picker, one confirm that says how to change it; declining exports nothing", async () => {
   await host("harness.confirmAnswer = false");
   await click(rowSel(0, "notes.txt"));
   await waitFor(() => page(`!!document.querySelector(".details .preview")`), "notes details");
-  const before = readdirSync(shared).length;
   await click("#download-btn");
-  await waitFor(async () => (await host("harness.confirms")).length === 3, "third confirm");
+  await waitFor(async () => (await host("harness.confirms")).length === 1, "confirm");
+  const message = (await host("harness.confirms"))[0].message;
+  assert.match(message, new RegExp(join(shared2, "Downloads").replace(/[/.]/g, "\\$&")));
+  assert.match(message, /Download folder…/);
+  assert.ok(!(await visible("modal")));
   await new Promise(resolve => setTimeout(resolve, 300));
-  assert.equal(readdirSync(shared).length, before);
+  assert.ok(!existsSync(join(shared2, "Downloads", "notes.txt")));
   await host("harness.confirmAnswer = true");
+  await click("#download-btn");
+  await waitFor(() => existsSync(join(shared2, "Downloads", "notes.txt")), "remembered folder used");
+});
+
+await step("“Download to…” asks even when a folder is remembered", async () => {
+  await click(rowSel(0, "notes.txt"), "right");
+  await waitFor(() => visible("menu"), "menu");
+  await click("#menu button:last-child");
+  await waitFor(() => visible("modal"), "picker for Download to…");
+  assert.equal(await page(`document.querySelector(".option.chosen .path").textContent`), join(shared2, "Downloads"));
+  await click("#modal-cancel");
+  assert.ok(!(await visible("modal")));
+});
+
+await step("status bar “Download folder…” can switch back to asking every time", async () => {
+  await click("#dest-btn");
+  await waitFor(() => visible("modal"), "folder dialog");
+  assert.equal(await page(`document.getElementById("modal-title").textContent`), "Download folder");
+  assert.ok(!(await visible("remember-row")));
+  assert.equal(await page(`document.querySelector(".option").textContent.startsWith("Ask every time")`), true);
+  assert.equal(await page(`[...document.querySelectorAll(".option .hint")].filter(h => h.textContent.includes("default workspace")).length`), 1,
+    "only the suggested folder is labelled as the default workspace, even after another one got a Downloads folder");
+  await screenshot("4b-folder-dialog");
+  await click(".option.ask");
+  await click("#modal-ok");
+  await waitFor(() => page(`document.getElementById("dest-label").textContent.includes("ask every time")`), "back to asking");
+  await click("#download-btn");
+  await waitFor(() => visible("modal"), "asks again");
+  await click("#modal-cancel");
 });
 
 await step("hidden files toggle", async () => {
@@ -293,7 +341,6 @@ await step("state survives a reload (ui/setState)", async () => {
   await new Promise(resolve => setTimeout(resolve, 600));
   const saved = await host("harness.state");
   assert.equal(saved.path, "/etc");
-  assert.equal(saved.exportDest, shared);
   const before = frameSession;
   await page(`location.reload()`).catch(() => {});
   await waitFor(() => page("document.readyState === 'complete' && performance.now() < 5000"), "reloaded iframe");

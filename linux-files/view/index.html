@@ -41,7 +41,7 @@
       <span id="jobs" class="jobs"></span>
       <span class="dest">
         <span id="dest-label" class="dest-label"></span>
-        <button type="button" class="link-btn" id="dest-btn" data-text="change">Change</button>
+        <button type="button" class="link-btn" id="dest-btn" data-text="destButton">Download folder…</button>
       </span>
     </footer>
   </section>
@@ -54,6 +54,11 @@
     <h3 id="modal-title" data-text="pickTitle">Where should downloads go?</h3>
     <p id="modal-text" class="modal-text"></p>
     <div id="modal-list" class="modal-list" role="listbox"></div>
+    <label id="remember-row" class="remember">
+      <input type="checkbox" id="remember-box">
+      <span data-text="remember">Remember this folder and don't ask again</span>
+    </label>
+    <p id="modal-hint" class="modal-hint"></p>
     <div class="modal-actions">
       <button type="button" class="text-btn" id="modal-cancel" data-text="cancel">Cancel</button>
       <button type="button" class="text-btn primary" id="modal-ok" data-text="useFolder">Use this folder</button>

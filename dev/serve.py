@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -79,11 +80,20 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--export-folder", default="")
     parser.add_argument("--home", default="")
+    parser.add_argument("--shared", action="append", default=[],
+                        help="pretend this folder is shared with the Mac (repeatable); replaces the real mounts")
     args = parser.parse_args()
     env = {key: os.environ[key] for key in ("PATH", "LANG", "LC_ALL", "TZ", "USER", "LOGNAME", "SHELL") if key in os.environ}
     env["HOME"] = args.home or os.path.expanduser("~")
     if args.export_folder:
         env["EXPORT_FOLDER"] = args.export_folder
+    if args.shared:
+        handle, name = tempfile.mkstemp(prefix="linux-files-mountinfo-")
+        os.close(handle)
+        fake = Path(name)
+        fake.write_text("".join(f"{90 + i} 1 0:{90 + i} / {path.replace(' ', chr(92) + '040')} rw,relatime - fuse.sshfs sshfs rw\n"
+                                for i, path in enumerate(args.shared)))
+        env["LINUX_FILES_MOUNTINFO"] = str(fake)
     Handler.mcp = McpProcess(env)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"http://127.0.0.1:{server.server_address[1]}/", flush=True)

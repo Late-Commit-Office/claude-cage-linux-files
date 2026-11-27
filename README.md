@@ -46,9 +46,16 @@ To update, pull and run the script again, then **Reload**.
 | Hidden files | 👁 button or ⌘⇧. |
 | Copy path or name | Right-click, the **Copy path** button, or ⌘C |
 | Download to Mac | Right-click → **Download to Mac**, or the toolbar button |
-| Change the download folder | **Change** in the status bar |
+| Download somewhere else once | Right-click → **Download to…** (asks even if a folder is remembered) |
+| Change or forget the download folder | **Download folder…** in the status bar |
 
-**Where downloads go.** The first download asks you to pick from the folders shared with your Mac. The one that already has a `Downloads` folder is preselected; that's normally Cage's default workspace. Files are saved in the chosen folder's `Downloads` subfolder. Name clashes get a ` (2)` suffix. Folders become `<name>.zip`: links, pipes and devices are left out, and unreadable files are skipped and counted. To always save into one specific folder instead, set **Download folder** in the plugin's settings to that folder's path as Linux sees it.
+**Where downloads go.**
+
+- **Choosing a folder.** Each download asks you to pick from the folders shared with your Mac. Picking one and clicking **Download** is the only confirmation. The suggested folder, which already has a `Downloads` folder, is preselected; that's normally Cage's default workspace.
+- **Remembering it.** Tick **Remember this folder and don't ask again** and later downloads go straight there, after one confirm that names the folder.
+- **Changing it.** **Download folder…** in the status bar switches to another folder or back to **Ask every time**. The remembered choice is kept in `~/.config/linux-files/preferences.json` in the Linux environment, and it's ignored while that folder isn't shared (for example after closing a project).
+- **Fixing one folder for good.** Set **Download folder** in the plugin's settings (Plugins → Linux Files → Settings) to a shared folder's path as Linux sees it. It overrides the choice made in the page, and files go straight into it rather than a `Downloads` subfolder. A plugin can't write its own settings in Cage 0.2.1, so the page can't fill this in for you.
+- **How files are saved.** Files go into the chosen folder's `Downloads` subfolder, and name clashes get a ` (2)` suffix. Folders become `<name>.zip`: links, pipes and devices are left out, and unreadable files are skipped and counted.
 
 ## How it works
 
@@ -67,7 +74,8 @@ The page runs in Cage's sandboxed frame. It talks to the workbench over `postMes
 |---|---|
 | `list_directory` | One folder, paged (300 entries per page, up to 50,000 read) |
 | `path_details` | `stat`, owner, symlink target, item count, text preview |
-| `places` | Home, `/`, and the writable folders shared with the Mac, found in `/proc/self/mountinfo` (`fuse.sshfs`, `virtiofs`, `9p`) |
+| `places` | Home, `/`, the writable folders shared with the Mac (found in `/proc/self/mountinfo`: `fuse.sshfs`, `virtiofs`, `9p`), and the remembered download folder |
+| `remember_destination` | Save a shared folder as the download folder, or `null` to ask every time |
 | `export_start` / `export_status` / `export_cancel` | Background copy into the shared folder, written to a hidden `.partial` file and renamed when complete |
 
 The page uses the workbench's theme colours (light and dark) and its language (English, 简体中文, 繁體中文). It remembers the last location, the hidden-files toggle and the download folder.
@@ -77,12 +85,12 @@ The page uses the workbench's theme colours (light and dark) and its language (E
 ## Develop
 
 ```sh
-python3 -m unittest discover -s tests          # server and manifest rules (23 tests)
-node tests/e2e.mjs [--screenshots DIR]          # the page in headless Chromium (17 checks)
-python3 dev/serve.py --export-folder /tmp/out   # try the page at http://127.0.0.1:8765/
+python3 -m unittest discover -s tests            # server and manifest rules (26 tests)
+node tests/e2e.mjs [--screenshots DIR]            # the page in headless Chromium (19 checks)
+python3 dev/serve.py --shared /tmp/a --shared /tmp/b   # try the page at http://127.0.0.1:8765/
 ```
 
-`dev/serve.py` and `dev/harness.*` stand in for the Cage workbench. They frame the page with the same sandbox and CSP, answer the page protocol with Cage's limits (8 requests in flight, 1 MiB per message), and relay tool calls to a real `server.py`. Add `?scheme=dark` or `?locale=zh-CN` to the URL to switch theme or language.
+`--shared` pretends folders are shared with the Mac, in place of the real mounts, so test downloads never touch real shared folders. `--export-folder` sets the plugin setting instead. `dev/serve.py` and `dev/harness.*` stand in for the Cage workbench. They frame the page with the same sandbox and CSP, answer the page protocol with Cage's limits (8 requests in flight, 1 MiB per message), and relay tool calls to a real `server.py`. Add `?scheme=dark` or `?locale=zh-CN` to the URL to switch theme or language.
 
 `tests/test_manifest.py` re-checks the rules Cage enforces when it loads a plugin (`docs/plugins.md` and `internal/hostbridge` in Claude-Cage v0.2.1). That includes the reserved words, such as the product name and "VM", that tool names, descriptions and schemas must not contain.
 
