@@ -349,6 +349,25 @@ class UnitTest(unittest.TestCase):
             with zipfile.ZipFile(partial) as archive:
                 self.assertEqual(archive.read("data/fine.txt"), b"fine.txt")
 
+    def test_zip_odd_names_and_dates(self):
+        module = self.module
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp, "data")
+            (folder / "empty-\udcff").mkdir(parents=True)  # a non-UTF-8 byte, as Python sees it
+            (folder / "bad-\udcfe.txt").write_text("bad")
+            for name, when in (("future.txt", 5_000_000_000), ("past.txt", 0)):
+                (folder / name).write_text(name)
+                os.utime(folder / name, (when, when))
+            job = {"cancel": threading.Event(), "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0}
+            partial = str(Path(temp, ".job.partial"))
+            module.write_zip(job, str(folder), partial)
+            self.assertEqual((job["files_done"], job["skipped_count"]), (3, 0))
+            with zipfile.ZipFile(partial) as archive:
+                self.assertEqual(archive.read("data/bad-�.txt"), b"bad")
+                self.assertIn("data/empty-�/", archive.namelist())
+                self.assertEqual(archive.getinfo("data/future.txt").date_time, (2107, 12, 31, 23, 59, 58))
+                self.assertEqual(archive.getinfo("data/past.txt").date_time, (1980, 1, 1, 0, 0, 0))
+
     def test_open_regular_refuses_links_and_pipes(self):
         with tempfile.TemporaryDirectory() as temp:
             Path(temp, "file").write_text("x")

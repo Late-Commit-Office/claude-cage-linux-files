@@ -452,8 +452,27 @@ def skip(job, reason):
         job["skipped"].append(reason)
 
 
+ZIP_EARLIEST = (1980, 1, 1, 0, 0, 0)
+ZIP_LATEST = (2107, 12, 31, 23, 59, 58)
+
+
+def zip_date(mtime):
+    """The file's time, clamped to what a zip header can hold (1980–2107)."""
+    try:
+        date = time.localtime(mtime)[:6]
+    except (OverflowError, OSError, ValueError):
+        return ZIP_LATEST if mtime > 0 else ZIP_EARLIEST
+    return min(max(date, ZIP_EARLIEST), ZIP_LATEST)
+
+
+def zip_name(name):
+    # Linux names are bytes; one that isn't UTF-8 arrives with surrogate escapes,
+    # which zipfile can't encode. Show the bad bytes as U+FFFD instead.
+    return name.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
 def zip_entry(name, info):
-    entry = zipfile.ZipInfo(name, time.localtime(max(info.st_mtime, 315532800))[:6])  # zip dates start in 1980
+    entry = zipfile.ZipInfo(zip_name(name), zip_date(info.st_mtime))
     entry.external_attr = (info.st_mode & 0xFFFF) << 16
     entry.file_size = info.st_size
     entry.compress_type = zipfile.ZIP_DEFLATED
@@ -472,7 +491,7 @@ def write_zip(job, folder, partial):
                 continue
             relative_root = os.path.relpath(root, base)
             if not files and not dirs:
-                archive.writestr(relative_root + "/", b"")
+                archive.writestr(zip_name(relative_root) + "/", b"")
             for name in sorted(files):
                 path = os.path.join(root, name)
                 try:
