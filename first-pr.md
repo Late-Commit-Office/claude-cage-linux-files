@@ -47,7 +47,7 @@ The plugin's detail page still shows a **Claude 工具** tag. That's because `pu
 
 本插件的 MCP 服务器只为插件页面提供数据。全部 7 个工具都声明了 `_meta.ui.visibility: ["app"]`，Cage 不会把它们提供给 Claude，也会拒绝模型调用。插件详情页上的「Claude 工具」标签来自 `ui/src/host-plugins.jsx` 的 `purposes()`：它只看插件是否声明了 `contributes.mcpServers`，没有检查工具的可见性。
 
-Source, tests and development tools: https://github.com/late-commit-office/claude-cage-linux-file
+Source, tests and development tools: https://github.com/late-commit-office/claude-cage-linux-files
 
 ## 运行效果图 / Runtime Screenshots or Demo
 

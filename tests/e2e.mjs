@@ -109,6 +109,16 @@ async function open(query = "") {
   frameSession = null;
   await cdp("Page.navigate", { url: base + query });
   await waitFor(() => frameReady && page("document.readyState === 'complete'"), "iframe session");
+  // Mouse events reach the sandboxed frame only once the browser can hit-test
+  // it, which can lag behind the load on some Chrome builds. Wait until a
+  // mouse move arrives, so later clicks aren't dropped.
+  await page(`window.__mouseSeen = false; addEventListener("mousemove", () => { window.__mouseSeen = true; }); true`);
+  let nudge = 0;
+  await waitFor(async () => {
+    nudge += 1;
+    await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 600 + (nudge % 2) * 10, y: 400, button: "none" });
+    return page("window.__mouseSeen");
+  }, "mouse input to reach the page");
 }
 
 async function page(expression) {
@@ -124,7 +134,18 @@ async function waitFor(check, what, timeout = 8000) {
     try { if (await check()) return; } catch {}
     await new Promise(resolve => setTimeout(resolve, 50));
   }
+  await diagnose(what);
   throw new Error("timed out waiting for " + what);
+}
+
+// Says what the page showed when a wait timed out, and saves a screenshot
+// (into --screenshots DIR, which CI uploads when the job fails).
+async function diagnose(what) {
+  console.log(`\n--- timed out waiting for ${what}`);
+  try { console.log("columns:", JSON.stringify(await columnNames())); } catch (error) { console.log("columns: unavailable:", error.message); }
+  try { console.log("selected:", JSON.stringify(await selected())); } catch {}
+  console.log("page problems:", problems.length ? problems : "none");
+  try { await screenshot("failure-" + what.replace(/[^a-z0-9]+/gi, "-")); } catch {}
 }
 
 async function box(selector) {
@@ -135,6 +156,7 @@ async function box(selector) {
 
 async function click(selector, button = "left") {
   const { x, y } = await box(selector);
+  await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" });
   for (const type of ["mousePressed", "mouseReleased"]) {
     await cdp("Input.dispatchMouseEvent", { type, x, y, button, clickCount: 1 });
   }
