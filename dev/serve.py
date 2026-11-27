@@ -1,6 +1,6 @@
 """Dev harness: serves the plugin page inside a stand-in for the Cage workbench.
 
-    python3 dev/serve.py [--port 8765] [--export-folder DIR] [--home DIR]
+    python3 dev/serve.py [--port 8765] [--home DIR] [--shared DIR ...]
 
 Open http://127.0.0.1:8765/ (add ?scheme=dark or ?locale=zh-CN). The page runs
 in a sandboxed iframe like in Cage; its tools/call requests are relayed to a
@@ -78,15 +78,12 @@ class Handler(SimpleHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--export-folder", default="")
     parser.add_argument("--home", default="")
     parser.add_argument("--shared", action="append", default=[],
                         help="pretend this folder is shared with the computer (repeatable); replaces the real mounts")
     args = parser.parse_args()
     env = {key: os.environ[key] for key in ("PATH", "LANG", "LC_ALL", "TZ", "USER", "LOGNAME", "SHELL") if key in os.environ}
     env["HOME"] = args.home or os.path.expanduser("~")
-    if args.export_folder:
-        env["EXPORT_FOLDER"] = args.export_folder
     if args.shared:
         handle, name = tempfile.mkstemp(prefix="linux-files-mountinfo-")
         os.close(handle)

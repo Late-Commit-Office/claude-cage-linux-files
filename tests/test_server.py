@@ -25,7 +25,6 @@ def load_module():
 class Server:
     def __init__(self, env=None):
         environment = dict(os.environ)
-        environment.pop("EXPORT_FOLDER", None)
         environment.update(env or {})
         self.process = subprocess.Popen([sys.executable, "-I", str(SERVER)], stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, text=True, env=environment)
@@ -78,7 +77,9 @@ class ServerTest(unittest.TestCase):
         self.home.mkdir()
         self.mountinfo = self.root / "mountinfo"
         self.mountinfo.write_text("")  # no real shares: only what a test declares
-        self.server = self.start({"EXPORT_FOLDER": str(self.shared)})
+        self.share(self.shared)
+        self.downloads = self.shared / "Downloads"
+        self.server = self.start({})
 
     def start(self, env):
         server = Server({"HOME": str(self.home), "LINUX_FILES_MOUNTINFO": str(self.mountinfo), **env})
@@ -157,12 +158,12 @@ class ServerTest(unittest.TestCase):
         proc = self.server.ok("path_details", path="/proc/self/status")
         self.assertNotIn("preview", proc)
 
-    def test_places_lists_the_setting_first(self):
+    def test_places(self):
         places = self.server.ok("places")
         self.assertEqual(places["root"], "/")
-        self.assertEqual(places["shared"][0], {"path": str(self.shared), "source": "setting", "writable": True, "has_downloads": False})
+        self.assertEqual(places["shared"], [{"path": str(self.shared), "writable": True, "has_downloads": False}])
         self.assertEqual(places["suggested"], str(self.shared))
-        self.assertEqual((places["remembered"], places["remembered_source"]), (str(self.shared), "setting"))
+        self.assertIsNone(places["remembered"])
 
     def test_remember_forget_and_restart(self):
         self.server.close()
@@ -175,7 +176,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([folder["path"] for folder in places["shared"]], [str(one), str(two)])
         self.assertEqual((places["remembered"], places["suggested"]), (None, str(one)))
         places = self.server.ok("remember_destination", destination=str(two))
-        self.assertEqual((places["remembered"], places["remembered_source"]), (str(two), "saved"))
+        self.assertEqual(places["remembered"], str(two))
         self.assertTrue((self.home / ".config" / "linux-files" / "preferences.json").is_file())
         self.server.close()
         self.server = self.start({})
@@ -198,18 +199,6 @@ class ServerTest(unittest.TestCase):
         self.share()  # the project was closed
         self.assertIsNone(self.server.ok("places")["remembered"])
 
-    def test_setting_wins_over_saved_choice(self):
-        self.server.close()
-        one = self.root / "one"
-        one.mkdir()
-        self.share(one)
-        self.server = self.start({})
-        self.server.ok("remember_destination", destination=str(one))
-        self.server.close()
-        self.server = self.start({"EXPORT_FOLDER": str(self.shared)})
-        places = self.server.ok("places")
-        self.assertEqual((places["remembered"], places["remembered_source"]), (str(self.shared), "setting"))
-
     def wait(self, job):
         for _ in range(200):
             status = self.server.ok("export_status", job=job)
@@ -223,9 +212,9 @@ class ServerTest(unittest.TestCase):
             job = self.server.ok("export_start", path=str(self.tree / "file2.txt"), destination=str(self.shared))
             status = self.wait(job["id"])
             self.assertEqual(status["state"], "done", status)
-            self.assertEqual(status["result"], str(self.shared / expected))
-            self.assertEqual((self.shared / expected).read_text(), "two\n")
-        self.assertEqual(sorted(os.listdir(self.shared)), ["file2 (2).txt", "file2.txt"])  # no partial files left
+            self.assertEqual(status["result"], str(self.downloads / expected))
+            self.assertEqual((self.downloads / expected).read_text(), "two\n")
+        self.assertEqual(sorted(os.listdir(self.downloads)), ["file2 (2).txt", "file2.txt"])  # no partial files left
 
     def test_export_folder_as_zip(self):
         job = self.server.ok("export_start", path=str(self.tree), destination=str(self.shared))
@@ -266,7 +255,7 @@ class ServerTest(unittest.TestCase):
         self.server.ok("export_cancel", job=job["id"])
         status = self.wait(job["id"])
         self.assertEqual(status["state"], "cancelled")
-        self.assertEqual(os.listdir(self.shared), [])
+        self.assertEqual([path for path in self.shared.rglob("*") if path.is_file()], [])
 
 
 class UnitTest(unittest.TestCase):
@@ -285,14 +274,13 @@ class UnitTest(unittest.TestCase):
         ])
         self.assertEqual(self.module.shared_mounts(mountinfo), ["/Users/me/Cage Work", "/Users/me/project", "/mnt/virt"])
 
-    def test_suggested_prefers_setting_then_downloads(self):
+    def test_suggested_prefers_a_downloads_folder(self):
         folders = [
-            {"path": "/a", "source": "mount", "writable": True, "has_downloads": False},
-            {"path": "/b", "source": "mount", "writable": True, "has_downloads": True},
-            {"path": "/c", "source": "mount", "writable": False, "has_downloads": True},
+            {"path": "/a", "writable": True, "has_downloads": False},
+            {"path": "/b", "writable": True, "has_downloads": True},
+            {"path": "/c", "writable": False, "has_downloads": True},
         ]
         self.assertEqual(self.module.suggested(folders), "/b")
-        self.assertEqual(self.module.suggested(folders + [{"path": "/s", "source": "setting", "writable": True, "has_downloads": False}]), "/s")
         self.assertIsNone(self.module.suggested([folders[2]]))
 
     def test_free_name(self):

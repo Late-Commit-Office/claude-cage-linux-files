@@ -7,7 +7,7 @@ A [Claude Cage](https://github.com/Lee-xeo/Claude-Cage) plugin that adds a **Lin
 - **Copy path** or name of any file or folder: right-click it, use the toolbar button, or press ⌘C.
 - **Download to computer**: a file, or a folder as a `.zip`, is copied into a folder shared with your computer. By default this is the `Downloads` subfolder of Cage's default workspace, the same place the Cage browser saves downloads. You confirm every download.
 
-The plugin is `kind: "guest"`: it runs inside the environment, needs no permissions and shows no approval prompts. All of its tools are page-only (`_meta.ui.visibility: ["app"]`), so Claude never sees or calls them.
+The plugin is `kind: "guest"`: it runs inside the environment, needs no permissions and shows no approval prompts. All of its tools are page-only (`_meta.ui.visibility: ["app"]`), so Claude never sees or calls them. Cage's plugin page still tags it **Claude tool** (Claude 工具), because Cage gives that tag to every plugin with an MCP server, whoever its tools are for. Here the MCP server only feeds the page.
 
 ## Install
 
@@ -54,14 +54,13 @@ To update, pull and run the script again, then **Reload**.
 - **Choosing a folder.** Each download asks you to pick from the folders shared with your computer. Picking one and clicking **Download** is the only confirmation. The suggested folder, which already has a `Downloads` folder, is preselected; that's normally Cage's default workspace.
 - **Remembering it.** Tick **Remember this folder and don't ask again** and later downloads go straight there, after one confirm that names the folder.
 - **Changing it.** **Download folder…** in the status bar switches to another folder or back to **Ask every time**. The remembered choice is kept in `~/.config/linux-files/preferences.json` in the Linux environment, and it's ignored while that folder isn't shared (for example after closing a project).
-- **Fixing one folder for good.** Set **Download folder** in the plugin's settings (Plugins → Linux Files → Settings) to a shared folder's path as Linux sees it. It overrides the choice made in the page, and files go straight into it rather than a `Downloads` subfolder. A plugin can't write its own settings in Cage 0.2.1, so the page can't fill this in for you.
 - **How files are saved.** Files go into the chosen folder's `Downloads` subfolder, and name clashes get a ` (2)` suffix. Folders become `<name>.zip`: links, pipes and devices are left out, and unreadable files are skipped and counted.
 
 ## How it works
 
 ```
 linux-files/
-├── plugin.json      guest plugin: one MCP server, one page, one optional setting
+├── plugin.json      guest plugin: one MCP server and one page
 ├── server.py        MCP server on stdin/stdout (Python 3 standard library only)
 ├── view/            the page: index.html, app.js, style.css
 ├── i18n.json        marketplace name and description in all 15 Cage languages
@@ -85,12 +84,12 @@ The page uses the workbench's theme colours (light and dark) and its language (E
 ## Develop
 
 ```sh
-python3 -m unittest discover -s tests            # server and manifest rules (28 tests)
+python3 -m unittest discover -s tests            # server and manifest rules (27 tests)
 node tests/e2e.mjs [--screenshots DIR]            # the page in headless Chromium (19 checks)
 python3 dev/serve.py --shared /tmp/a --shared /tmp/b   # try the page at http://127.0.0.1:8765/
 ```
 
-`--shared` pretends folders are shared with the computer, in place of the real mounts, so test downloads never touch real shared folders. `--export-folder` sets the plugin setting instead. `dev/serve.py` and `dev/harness.*` stand in for the Cage workbench. They frame the page with the same sandbox and CSP, answer the page protocol with Cage's limits (8 requests in flight, 1 MiB per message), and relay tool calls to a real `server.py`. Add `?scheme=dark` or `?locale=zh-CN` to the URL to switch theme or language.
+`--shared` pretends folders are shared with the computer, in place of the real mounts, so test downloads never touch real shared folders. `dev/serve.py` and `dev/harness.*` stand in for the Cage workbench. They frame the page with the same sandbox and CSP, answer the page protocol with Cage's limits (8 requests in flight, 1 MiB per message), and relay tool calls to a real `server.py`. Add `?scheme=dark` or `?locale=zh-CN` to the URL to switch theme or language.
 
 `tests/test_manifest.py` re-checks the rules Cage enforces when it loads a plugin (`docs/plugins.md` and `internal/hostbridge` in Claude-Cage v0.2.1). That includes the reserved words, such as the product name and "VM", that tool names, descriptions and schemas must not contain.
 
@@ -107,7 +106,7 @@ Only `linux-files/` is published, to [Lee-xeo/cage-plugins](https://github.com/L
    - makes one commit and force-pushes it.
 
    The branch is rebuilt each time, never merged or rebased, so it can't conflict.
-3. The run summary links to a pre-filled pull request form. Create a **draft** pull request, add the screenshots the marketplace asks for, and mark it ready. Later versions update an open pull request by themselves.
+3. The run summary links to a pull request form filled in from [`first-pr.md`](first-pr.md), which follows the marketplace's pull request template. Edit that file to change the description. Create a **draft** pull request, add the screenshots the marketplace asks for, and mark it ready. Later versions update an open pull request by themselves.
 
 `python3 scripts/export_market.py MARKET_DIR --author late-commit-office --fork late-commit-office/cage-plugins` does step 2's copying locally, without committing, for a dry run. The workflow needs a `MARKET_TOKEN` secret: a fine-grained token for the fork with Contents and Workflows read/write.
 

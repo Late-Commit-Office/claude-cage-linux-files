@@ -16,7 +16,7 @@ import time
 import uuid
 import zipfile
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 PAGE_ONLY = {"ui": {"visibility": ["app"]}}
 MAX_SCAN = 50000          # entries read from one folder before giving up
 DEFAULT_LIMIT = 300
@@ -278,7 +278,7 @@ def shared_mounts(mountinfo):
 
 def read_mountinfo():
     # LINUX_FILES_MOUNTINFO is for tests only: Cage starts guest plugins with a
-    # fixed environment (HOME, USER, PATH, … and declared settings), never this.
+    # fixed environment (HOME, USER, PATH, …), never this.
     source = os.environ.get("LINUX_FILES_MOUNTINFO") or "/proc/self/mountinfo"
     try:
         with open(source, encoding="utf-8", errors="replace") as file:
@@ -287,20 +287,12 @@ def read_mountinfo():
         return ""
 
 
-def configured_folder():
-    folder = os.environ.get("EXPORT_FOLDER", "").strip()
-    return os.path.normpath(folder) if folder.startswith("/") else ""
-
-
 def shared_folders():
     folders = []
-    setting = configured_folder()
-    if setting:
-        folders.append({"path": setting, "source": "setting"})
     for point in shared_mounts(read_mountinfo()):
         # A single shared file is bound onto its own path: folders only.
-        if point != setting and os.path.isdir(point):
-            folders.append({"path": point, "source": "mount"})
+        if os.path.isdir(point):
+            folders.append({"path": point})
     for folder in folders:
         folder["writable"] = os.access(folder["path"], os.W_OK)
         folder["has_downloads"] = os.path.isdir(os.path.join(folder["path"], EXPORT_SUBFOLDER))
@@ -309,8 +301,7 @@ def shared_folders():
 
 def suggested(folders):
     writable = [folder for folder in folders if folder["writable"]]
-    for rule in (lambda folder: folder["source"] == "setting",
-                 lambda folder: folder["has_downloads"],
+    for rule in (lambda folder: folder["has_downloads"],
                  lambda folder: True):
         for folder in writable:
             if rule(folder):
@@ -342,23 +333,17 @@ def save_preferences(data):
 
 
 def remembered(folders):
-    """The folder downloads go to without asking: the plugin setting wins over a saved choice."""
-    usable = {folder["path"]: folder for folder in folders if folder["writable"]}
-    setting = configured_folder()
-    if setting:
-        return (setting, "setting") if setting in usable else (None, None)
+    """The folder downloads go to without asking, while it's still shared and writable."""
+    usable = {folder["path"] for folder in folders if folder["writable"]}
     saved = load_preferences().get("download_folder")
-    if isinstance(saved, str) and saved in usable:
-        return saved, "saved"
-    return None, None
+    return saved if isinstance(saved, str) and saved in usable else None
 
 
 def places(_args):
     folders = shared_folders()
     home = os.path.expanduser("~")
-    folder, source = remembered(folders)
     return {"home": home, "root": "/", "shared": folders, "suggested": suggested(folders),
-            "remembered": folder, "remembered_source": source, "export_subfolder": EXPORT_SUBFOLDER}
+            "remembered": remembered(folders), "export_subfolder": EXPORT_SUBFOLDER}
 
 
 def remember_destination(args):
@@ -395,8 +380,6 @@ def export_target(destination):
         raise Refused("That folder is not shared with your computer.")
     if not match["writable"]:
         raise Refused(f"Cannot write to {destination}.")
-    if match["source"] == "setting":
-        return destination
     return os.path.join(destination, EXPORT_SUBFOLDER)
 
 

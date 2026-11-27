@@ -14,7 +14,7 @@ name: Marketplace export
 on:
   push:
     branches: [main]
-    paths: ["linux-files/**"]
+    paths: ["linux-files/**"]  # edits to first-pr.md alone don't export; use Run workflow
   workflow_dispatch:
 
 concurrency:
@@ -115,6 +115,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ steps.export.outputs.pr_url }}
+          BODY_IN_URL: ${{ steps.export.outputs.body_in_url }}
           VERSION: ${{ steps.export.outputs.version }}
         run: |
           owner=${FORK%%/*}
@@ -128,11 +129,17 @@ jobs:
               echo
               echo "Its description isn't changed. Update the version and screenshots in it by hand if needed."
             else
-              echo "**[Open the pull request]($PR_URL)**. Title and description are filled in."
+              if [ "$BODY_IN_URL" = true ]; then
+                echo "**[Open the pull request]($PR_URL)**. Title and description (from \`first-pr.md\`) are filled in."
+                fold="<details>"
+              else
+                echo "**[Open the pull request]($PR_URL)**. The title is filled in; the description is too long for a link, so paste it from below."
+                fold="<details open>"
+              fi
               echo
               echo "Choose **Create draft pull request**, drag in the screenshots, fill in the TODOs, then mark it ready for review."
               echo
-              echo "<details><summary>Description, in case the form comes up empty</summary>"
+              echo "$fold<summary>Description, filled in from first-pr.md</summary>"
               echo
               echo '````markdown'
               cat pr-body.md

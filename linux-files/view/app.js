@@ -59,9 +59,8 @@ const STRINGS = {
     openHere: "Browse from here", cancel: "Cancel", useFolder: "Use this folder",
     pickTitle: "Where should downloads go?",
     pickText: sub => `Pick a folder shared with your computer. Files are saved in its “${sub}” subfolder.`,
-    pickNone: "No folder shared with your computer was found. Open a project in the workbench, or set “Download folder” in this plugin's settings.",
+    pickNone: "No folder shared with your computer was found. Open a project in the workbench.",
     likelyDefault: "Probably the default workspace (already has Downloads)",
-    fromSetting: "From plugin settings (saved directly here)",
     notWritable: "Not writable",
     destNone: "Downloads: not chosen", dest: path => `Downloads → ${path}`,
     items: (n, h) => h ? `${n} items, ${h} hidden` : `${n} items`,
@@ -91,9 +90,8 @@ const STRINGS = {
     openHere: "从这里浏览", cancel: "取消", useFolder: "使用此文件夹",
     pickTitle: "下载保存到哪里？",
     pickText: sub => `选择一个与电脑共享的文件夹，文件会保存到其中的“${sub}”子文件夹。`,
-    pickNone: "没有找到与电脑共享的文件夹。请在工作台打开一个项目，或在本插件设置中填写“Download folder”。",
+    pickNone: "没有找到与电脑共享的文件夹。请在工作台打开一个项目。",
     likelyDefault: "可能是默认工作区（已有 Downloads）",
-    fromSetting: "来自插件设置（直接保存到这里）",
     notWritable: "不可写",
     destNone: "下载位置：未选择", dest: path => `下载 → ${path}`,
     items: (n, h) => h ? `${n} 项，另有 ${h} 项隐藏` : `${n} 项`,
@@ -123,9 +121,8 @@ const STRINGS = {
     openHere: "從這裡瀏覽", cancel: "取消", useFolder: "使用此資料夾",
     pickTitle: "下載要存到哪裡？",
     pickText: sub => `選擇一個與電腦共享的資料夾，檔案會存到其中的「${sub}」子資料夾。`,
-    pickNone: "找不到與電腦共享的資料夾。請在工作台開啟一個專案，或在本外掛設定中填寫「Download folder」。",
+    pickNone: "找不到與電腦共享的資料夾。請在工作台開啟一個專案。",
     likelyDefault: "可能是預設工作區（已有 Downloads）",
-    fromSetting: "來自外掛設定（直接存到這裡）",
     notWritable: "無法寫入",
     destNone: "下載位置：未選擇", dest: path => `下載 → ${path}`,
     items: (n, h) => h ? `${n} 項，另有 ${h} 項隱藏` : `${n} 項`,
@@ -153,42 +150,39 @@ const STRINGS = {
 Object.assign(STRINGS.en, {
   destButton: "Download folder…", destAsk: "Downloads: ask every time", downloadTo: "Download to…",
   remember: "Remember this folder and don't ask again",
-  rememberHint: "You can change it later with “Download folder…” in the status bar. To fix one folder for good, set “Download folder” in this plugin's settings (Plugins → Linux Files → Settings).",
+  rememberHint: "You can change it later with “Download folder…” in the status bar.",
   downloadTitle: name => `Download “${name}” to your computer`,
   downloadTextFile: sub => `Choose a folder shared with your computer. The file is saved in its “${sub}” subfolder.`,
   downloadTextFolder: sub => `Choose a folder shared with your computer. The folder is zipped and saved in its “${sub}” subfolder; unreadable files are skipped.`,
   downloadOk: "Download", save: "Save", folderTitle: "Download folder",
   folderText: "Where should downloads go? Choose a folder to use without asking, or have each download ask.",
   askEveryTime: "Ask every time", askEveryTimeHint: "Choose a folder for each download",
-  settingLocked: "The folder is set in this plugin's settings (Plugins → Linux Files → Settings). Clear it there to choose here again.",
   confirmHint: "Change the folder with “Download folder…” in the status bar.",
   rememberedTag: "Current",
 });
 Object.assign(STRINGS["zh-CN"], {
   destButton: "下载位置…", destAsk: "下载位置：每次询问", downloadTo: "下载到…",
   remember: "记住这个文件夹，以后不再询问",
-  rememberHint: "之后可在状态栏的“下载位置…”中更改。如需固定使用某个文件夹，请在本插件的设置中填写“Download folder”（插件 → Linux 文件 → 设置）。",
+  rememberHint: "之后可在状态栏的“下载位置…”中更改。",
   downloadTitle: name => `把“${name}”下载到电脑`,
   downloadTextFile: sub => `选择一个与电脑共享的文件夹，文件会保存到其中的“${sub}”子文件夹。`,
   downloadTextFolder: sub => `选择一个与电脑共享的文件夹，文件夹会压缩后保存到其中的“${sub}”子文件夹；无法读取的文件会被跳过。`,
   downloadOk: "下载", save: "保存", folderTitle: "下载位置",
   folderText: "下载保存到哪里？选择一个文件夹后直接使用，或者每次下载时询问。",
   askEveryTime: "每次询问", askEveryTimeHint: "每次下载时选择文件夹",
-  settingLocked: "下载位置已在本插件的设置中指定（插件 → Linux 文件 → 设置）。在那里清空后，才能在这里重新选择。",
   confirmHint: "可在状态栏的“下载位置…”中更改文件夹。",
   rememberedTag: "当前",
 });
 Object.assign(STRINGS["zh-TW"], {
   destButton: "下載位置…", destAsk: "下載位置：每次詢問", downloadTo: "下載到…",
   remember: "記住這個資料夾，以後不再詢問",
-  rememberHint: "之後可在狀態列的「下載位置…」中變更。如需固定使用某個資料夾，請在本外掛的設定中填寫「Download folder」（外掛 → Linux 檔案 → 設定）。",
+  rememberHint: "之後可在狀態列的「下載位置…」中變更。",
   downloadTitle: name => `把「${name}」下載到電腦`,
   downloadTextFile: sub => `選擇一個與電腦共享的資料夾，檔案會存到其中的「${sub}」子資料夾。`,
   downloadTextFolder: sub => `選擇一個與電腦共享的資料夾，資料夾會壓縮後存到其中的「${sub}」子資料夾；無法讀取的檔案會被略過。`,
   downloadOk: "下載", save: "儲存", folderTitle: "下載位置",
   folderText: "下載要存到哪裡？選擇一個資料夾後直接使用，或者每次下載時詢問。",
   askEveryTime: "每次詢問", askEveryTimeHint: "每次下載時選擇資料夾",
-  settingLocked: "下載位置已在本外掛的設定中指定（外掛 → Linux 檔案 → 設定）。在那裡清空後，才能在這裡重新選擇。",
   confirmHint: "可在狀態列的「下載位置…」中變更資料夾。",
   rememberedTag: "目前",
 });
@@ -857,7 +851,7 @@ let modalResolve = null;
 
 function shownFolder(folder) {
   const sub = state.places.export_subfolder || "Downloads";
-  return folder.source === "setting" ? folder.path : joinPath(folder.path, sub);
+  return joinPath(folder.path, sub);
 }
 
 // mode "download": pick a folder for one download, optionally remembering it.
@@ -869,13 +863,11 @@ function chooseDestination(mode, item) {
     const sub = places.export_subfolder || "Downloads";
     const list = $("modal-list");
     list.replaceChildren();
-    const locked = mode === "folder" && places.remembered_source === "setting";
     const writable = places.shared.filter(folder => folder.writable);
     let chosen = mode === "folder" ? places.remembered : (places.remembered || places.suggested);
     if (mode === "download" && !writable.some(folder => folder.path === chosen)) chosen = writable[0] ? writable[0].path : null;
     $("modal-title").textContent = mode === "download" ? t("downloadTitle", item.name) : t("folderTitle");
     $("modal-text").textContent = !places.shared.length ? t("pickNone")
-      : locked ? t("settingLocked")
       : mode === "download" ? (item.isDir ? t("downloadTextFolder", sub) : t("downloadTextFile", sub))
       : t("folderText");
     const choose = (path, option) => {
@@ -885,7 +877,7 @@ function chooseDestination(mode, item) {
     const addOption = (path, label, hint, enabled, className) => {
       const option = el("button", "option" + (className ? " " + className : ""));
       option.type = "button";
-      option.disabled = !enabled || locked;
+      option.disabled = !enabled;
       option.appendChild(el("span", "path", label));
       if (hint) option.appendChild(el("span", "hint", hint));
       option.addEventListener("click", () => choose(path, option));
@@ -893,12 +885,11 @@ function chooseDestination(mode, item) {
       if (path === chosen) option.classList.add("chosen");
       list.appendChild(option);
     };
-    if (mode === "folder" && !locked) addOption(null, t("askEveryTime"), t("askEveryTimeHint"), true, "ask");
+    if (mode === "folder") addOption(null, t("askEveryTime"), t("askEveryTimeHint"), true, "ask");
     for (const folder of places.shared) {
       const hints = [];
       if (folder.path === places.remembered) hints.push(t("rememberedTag"));
       if (!folder.writable) hints.push(t("notWritable"));
-      else if (folder.source === "setting") hints.push(t("fromSetting"));
       else if (folder.has_downloads && folder.path === places.suggested) hints.push(t("likelyDefault"));
       addOption(folder.path, shownFolder(folder), hints.join(" · "), folder.writable);
     }
@@ -908,7 +899,6 @@ function chooseDestination(mode, item) {
     $("modal-hint").textContent = mode === "download" && writable.length ? t("rememberHint") : "";
     const ok = $("modal-ok");
     ok.textContent = mode === "download" ? t("downloadOk") : t("save");
-    ok.hidden = locked;
     ok.disabled = mode === "download" && !writable.length;
     const finish = () => {
       if (mode === "download" && !chosen) return;
@@ -918,7 +908,7 @@ function chooseDestination(mode, item) {
     $("modal-cancel").onclick = () => closeModal(null);
     modalResolve = resolve;
     $("modal").hidden = false;
-    (list.querySelector(".option.chosen:not(:disabled)") || (ok.hidden ? $("modal-cancel") : ok)).focus();
+    (list.querySelector(".option.chosen:not(:disabled)") || ok).focus();
   });
 }
 
