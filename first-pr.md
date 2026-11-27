@@ -17,37 +17,31 @@ Edit it like any other file; this comment is removed before use.
 | 插件名称与版本 | `linux-files` / `{{VERSION}}` |
 | 运行位置 (`kind`) | `guest`（环境内） |
 | 适用平台 | All: one folder in `plugins/`, Python 3 standard library only. Tested with macOS. |
-| 能力形态 | 扩展页面 (`contributes.views`), backed by its own MCP server. **No tools for Claude**: see below. |
+| 能力形态 | 扩展页面 (`contributes.views`)，由自带的 MCP 服务器提供数据；**不向 Claude 提供工具**（见下文） |
 | 声明权限 (`permissions`) | `[]` |
 | 所属分类 (`categories`) | `files`, `system` |
 | 上游开源项目与许可 | 无 (original work, MIT) |
 
 ### 功能说明与设计要点
 
-**Linux Files** adds a sidebar page: a Finder-style column browser for the whole Linux file system in the environment.
+**Linux 文件**在侧栏添加一个页面，以分栏方式浏览环境内的整个 Linux 文件系统：
 
-- Browse any folder the environment's user can read, from `/` down, with hidden files on demand.
-- See details for any file (kind, size, times, permissions, owner, link target) and a text preview of the first 4 KB.
-- Copy a path or name.
-- Download a file, or a folder as a `.zip`, into a folder shared with the user's computer. The user confirms every download, and can remember a folder.
+- 从 `/` 起浏览当前用户可读的任意文件夹，可显示隐藏文件；
+- 查看文件详情（类型、大小、时间、权限、所有者、链接目标），并预览文本文件前 4 KB；
+- 复制路径或名称；
+- 把文件（或打包成 `.zip` 的文件夹）下载到与电脑共享的文件夹。每次下载都需确认，也可记住下载位置。
 
-1. **Why `guest`:** it shows the environment's own file system, so it needs nothing on the user's computer and behaves the same whichever system that is.
-2. **Runtime:** `python3 server.py`, standard library only. Nothing is downloaded or installed at runtime, and there's no telemetry.
-3. **Data flow:**
-   - No network access.
-   - **Reads:** only what the environment's user can read. `/proc`, `/sys` and `/dev` can be listed but not previewed or downloaded.
-   - **Writes:** only after the user confirms a download, into the chosen shared folder's `Downloads/` subfolder. Files are written as a hidden `.partial` file, then renamed.
-   - **Preferences:** the remembered folder is kept in `~/.config/linux-files/preferences.json`.
+1. **为何选 `guest`**：浏览的是环境自身的文件系统，不依赖电脑上的任何软件，在各系统上表现一致。
+2. **运行方式**：`python3 server.py`，仅用 Python 标准库；运行时不下载任何代码，无遥测。
+3. **数据流向**：不联网。只读取当前用户可读的文件（`/proc`、`/sys`、`/dev` 可浏览，但不能预览或下载）；仅在用户确认下载后，写入所选共享文件夹的 `Downloads/` 子文件夹（先写入隐藏的 `.partial` 文件再改名）；记住的下载位置保存在 `~/.config/linux-files/preferences.json`。
 
-#### No tools for Claude / 不向 Claude 提供工具
+#### 不向 Claude 提供工具
 
-The MCP server exists only to serve the plugin's page. All seven of its tools (`list_directory`, `path_details`, `places`, `remember_destination`, `export_start`, `export_status`, `export_cancel`) declare `_meta.ui.visibility: ["app"]`. Cage therefore leaves them out of the tools Claude sees and refuses model calls to them (`internal/hostbridge/external.go`). The plugin workshop's validator also reports every tool as `page_only: true`.
+MCP 服务器只为插件页面提供数据。全部 7 个工具都声明了 `_meta.ui.visibility: ["app"]`，Cage 不会把它们提供给 Claude，也会拒绝模型调用（见 `internal/hostbridge/external.go`）；插件工坊的校验也把它们全部标为 `page_only: true`。
 
-The plugin's detail page still shows a **Claude 工具** tag. That's because `purposes()` in `ui/src/host-plugins.jsx` adds the tag for any plugin with `contributes.mcpServers`, without checking tool visibility. Cage's backend already reports `PageOnly` for each tool, so the tag could be limited to plugins with at least one tool Claude can see. That would be a change in Cage itself; this pull request doesn't depend on it.
+插件详情页仍会显示「Claude 工具」标签：`ui/src/host-plugins.jsx` 的 `purposes()` 只要插件声明了 `contributes.mcpServers` 就会加上它，不检查工具可见性。后端已为每个工具提供 `PageOnly`，可据此只给有模型可见工具的插件加标签；这属于 Cage 本身的改动，本 PR 不依赖它。
 
-本插件的 MCP 服务器只为插件页面提供数据。全部 7 个工具都声明了 `_meta.ui.visibility: ["app"]`，Cage 不会把它们提供给 Claude，也会拒绝模型调用。插件详情页上的「Claude 工具」标签来自 `ui/src/host-plugins.jsx` 的 `purposes()`：它只看插件是否声明了 `contributes.mcpServers`，没有检查工具的可见性。
-
-Source, tests and development tools: https://github.com/late-commit-office/claude-cage-linux-files
+源码、测试与开发工具：https://github.com/late-commit-office/claude-cage-linux-files
 
 ## 运行效果图 / Runtime Screenshots or Demo
 
