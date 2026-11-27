@@ -85,7 +85,7 @@ The page uses the workbench's theme colours (light and dark) and its language (E
 ## Develop
 
 ```sh
-python3 -m unittest discover -s tests            # server and manifest rules (26 tests)
+python3 -m unittest discover -s tests            # server and manifest rules (28 tests)
 node tests/e2e.mjs [--screenshots DIR]            # the page in headless Chromium (19 checks)
 python3 dev/serve.py --shared /tmp/a --shared /tmp/b   # try the page at http://127.0.0.1:8765/
 ```
@@ -95,3 +95,22 @@ python3 dev/serve.py --shared /tmp/a --shared /tmp/b   # try the page at http://
 `tests/test_manifest.py` re-checks the rules Cage enforces when it loads a plugin (`docs/plugins.md` and `internal/hostbridge` in Claude-Cage v0.2.1). That includes the reserved words, such as the product name and "VM", that tool names, descriptions and schemas must not contain.
 
 The end-to-end test needs Node 24 and Chromium or Chrome. The other tests need only Python 3.
+
+## Publishing to the plugin marketplace
+
+Only `linux-files/` is published, to [Lee-xeo/cage-plugins](https://github.com/Lee-xeo/cage-plugins). The tests and dev tools stay here. The workflow `.github/workflows/market.yml` does the copying:
+
+1. On every push to `main` that touches `linux-files/`, it runs both test suites.
+2. If the version changed, it rebuilds the `linux-files` branch of the fork `late-commit-office/cage-plugins` from the marketplace's current `main`:
+   - copies the plugin in and adds it to `authors.json`;
+   - runs the marketplace's `scripts/build.py`;
+   - makes one commit and force-pushes it.
+
+   The branch is rebuilt each time, never merged or rebased, so it can't conflict.
+3. The run summary links to a pre-filled pull request form. Create a **draft** pull request, add the screenshots the marketplace asks for, and mark it ready. Later versions update an open pull request by themselves.
+
+`python3 scripts/export_market.py MARKET_DIR --author late-commit-office --fork late-commit-office/cage-plugins` does step 2's copying locally, without committing, for a dry run. The workflow needs a `MARKET_TOKEN` secret: a fine-grained token for the fork with Contents and Workflows read/write.
+
+## License
+
+[MIT](LICENSE).

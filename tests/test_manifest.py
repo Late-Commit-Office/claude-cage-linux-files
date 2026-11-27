@@ -122,6 +122,21 @@ class ManifestTest(unittest.TestCase):
             self.assertIsNone(reserved_word(text), tool["name"])
             self.assertRegex(tool["name"], r"^[a-zA-Z0-9_-]{1,64}$")
 
+    def test_server_version_matches(self):
+        server = (PLUGIN / "server.py").read_text()
+        self.assertIn(f'\nVERSION = "{self.manifest["version"]}"\n', server, "bump VERSION in server.py too")
+
+    def test_i18n_covers_every_language(self):
+        # The plugin marketplace's scripts/build.py requires these, matching Cage's languages.json.
+        locales = {"zh-CN", "zh-TW", "ru", "ar", "fa", "ko", "es", "my", "be", "ps", "prs", "am", "so", "ti", "fr"}
+        i18n = json.loads((PLUGIN / "i18n.json").read_text())
+        self.assertEqual(set(i18n), locales)
+        for code, entry in i18n.items():
+            only(self, entry, {"displayName", "description"}, f"i18n.json[{code}]")
+            self.assertTrue(0 < len(entry["displayName"].strip()) <= 80, code)
+            self.assertTrue(0 < len(entry["description"].strip()) <= 600, code)
+            self.assertIsNone(reserved_word(entry["displayName"] + " " + entry["description"]), code)
+
     def test_wording_checker_matches_cage(self):
         self.assertEqual(reserved_word("open the VM"), "vm")
         self.assertIsNone(reserved_word("vmlinuz files"))

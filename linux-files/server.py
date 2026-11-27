@@ -16,7 +16,7 @@ import time
 import uuid
 import zipfile
 
-VERSION = "0.2.1"
+VERSION = "0.2.4"
 PAGE_ONLY = {"ui": {"visibility": ["app"]}}
 MAX_SCAN = 50000          # entries read from one folder before giving up
 DEFAULT_LIMIT = 300

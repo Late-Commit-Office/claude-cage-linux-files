@@ -1,0 +1,143 @@
+# Tests the plugin, then, when its version changes, rebuilds the linux-files
+# branch of the marketplace fork from the marketplace's current main and
+# force-pushes it. The branch is never merged or rebased: every export is one
+# commit on top of upstream main.
+#
+# Needs the secret MARKET_TOKEN: a fine-grained token for the fork only, with
+# Contents and Workflows read/write (upstream main may change workflow files,
+# and pushing those needs Workflows).
+#
+# The first time, the run summary links to a pre-filled pull request form.
+# Later pushes update that pull request until it's merged.
+name: Marketplace export
+
+on:
+  push:
+    branches: [main]
+    paths: ["linux-files/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: marketplace-export
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM: Lee-xeo/cage-plugins
+  FORK: late-commit-office/cage-plugins
+  BRANCH: linux-files
+  AUTHOR: late-commit-office
+  PLUGIN: linux-files
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Server and manifest tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Page tests in headless Chrome
+        run: node tests/e2e.mjs
+
+  export:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Rebuild the branch on upstream main
+        id: export
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git clone --quiet "https://github.com/$UPSTREAM.git" market
+          git -C market checkout --quiet -B "$BRANCH" origin/main
+          python3 src/scripts/export_market.py market --author "$AUTHOR" --fork "$FORK" --branch "$BRANCH" --run-url "$RUN_URL" > export.txt
+          cat export.txt >> "$GITHUB_OUTPUT"
+          status=$(sed -n 's/^status=//p' export.txt)
+          version=$(sed -n 's/^version=//p' export.txt)
+          if [ "$status" = published ]; then
+            echo "The marketplace already lists $PLUGIN $version. Raise the version to export again." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A push exports only a new version; "Run workflow" always exports.
+          previous=""
+          if git -C market fetch --quiet "https://github.com/$FORK.git" "refs/heads/$BRANCH:refs/remotes/fork/$BRANCH" 2>/dev/null; then
+            previous=$(git -C market show "fork/$BRANCH:plugins/$PLUGIN/plugin.json" 2>/dev/null \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$previous" = "$version" ]; then
+            echo "The fork's $BRANCH branch already has $PLUGIN $version. Raise the version, or use Run workflow to export anyway." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Build and check with the marketplace's script
+        if: steps.export.outputs.skip == 'false'
+        working-directory: market
+        run: |
+          python3 scripts/build.py
+          python3 scripts/build.py --check
+
+      - name: Commit and push to the fork
+        if: steps.export.outputs.skip == 'false'
+        working-directory: market
+        env:
+          TOKEN: ${{ secrets.MARKET_TOKEN }}
+          TITLE: ${{ steps.export.outputs.title }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::The MARKET_TOKEN secret is missing."
+            exit 1
+          fi
+          git add --all "plugins/$PLUGIN" authors.json dist index.json
+          git -c user.name="LCO Assistant" -c user.email="claude@latecommitoffice.com" commit --quiet -m "$TITLE"
+          git push --quiet --force "https://x-access-token:${TOKEN}@github.com/$FORK.git" "HEAD:refs/heads/$BRANCH"
+
+      - name: Link the pull request
+        if: steps.export.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.export.outputs.pr_url }}
+          VERSION: ${{ steps.export.outputs.version }}
+        run: |
+          owner=${FORK%%/*}
+          open=$(gh pr list --repo "$UPSTREAM" --state open --head "$BRANCH" --json number,url,headRepositoryOwner \
+            --jq "map(select(.headRepositoryOwner.login == \"$owner\")) | .[0].url // empty")
+          {
+            echo "## $PLUGIN $VERSION pushed to $FORK:$BRANCH"
+            echo
+            if [ -n "$open" ]; then
+              echo "The open pull request now has this version: $open"
+              echo
+              echo "Its description isn't changed. Update the version and screenshots in it by hand if needed."
+            else
+              echo "**[Open the pull request]($PR_URL)**. Title and description are filled in."
+              echo
+              echo "Choose **Create draft pull request**, drag in the screenshots, fill in the TODOs, then mark it ready for review."
+              echo
+              echo "<details><summary>Description, in case the form comes up empty</summary>"
+              echo
+              echo '````markdown'
+              cat pr-body.md
+              echo '````'
+              echo
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
