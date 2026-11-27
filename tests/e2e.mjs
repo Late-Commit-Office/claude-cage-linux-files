@@ -413,7 +413,12 @@ await step("no page errors and never more than 8 requests in flight", async () =
   const maxInFlight = await host("harness.maxInFlight");
   assert.deepEqual(errors, []);
   assert.ok(maxInFlight <= 8, "max in flight " + maxInFlight);
-  assert.deepEqual(problems.filter(text => !/favicon/.test(text)), []);
+  // Newer Chrome builds refuse focus() in a cross-origin frame without a user
+  // gesture and log it as an error. The page focuses its browser on load so the
+  // keyboard works at once where that's allowed (Cage's WebKit); elsewhere the
+  // first click focuses it. Expected, so not a page problem.
+  const expected = text => /favicon/.test(text) || /focus-without-user-activation/.test(text);
+  assert.deepEqual(problems.filter(text => !expected(text)), []);
 });
 
 console.log("all e2e checks passed");
