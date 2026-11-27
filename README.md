@@ -11,7 +11,21 @@ The plugin is `kind: "guest"`: it runs inside the environment, needs no permissi
 
 ## Install
 
-Requires Cage **0.2.1** or newer. On the **Mac**, not in a Cage terminal:
+Requires Cage **0.2.1** or newer. There are two ways.
+
+### From inside Cage, as a draft you approve (recommended for testing)
+
+Cage's built-in plugin workshop (`cage-plugin`) lets Claude in the environment submit a plugin draft. You then review and install it from the sidebar, and nothing has to be copied on the Mac.
+
+1. In a Cage terminal, in this repo, run `python3 scripts/make_draft.py`. It writes the draft to `~/.local/share/plugin-drafts/linux-files`, converting `plugin.json` into the workshop's `extension.json` (`kind: "guest"` becomes `target: "workspace"`).
+2. Ask Claude in Cage to validate and submit the `linux-files` draft. That calls the workshop's `plugin_validate` and `plugin_submit_draft` tools.
+3. In Cage, go to **Plugins → Pending drafts** (待审核草稿). Check the files, choose **in the environment** as where it runs, and click **Install & Reload**.
+
+To test a change, repeat the three steps. Installing over an existing copy moves the old one to `~/.claude-cage/plugins-removed/`.
+
+### From the Mac
+
+On the **Mac**, not in a Cage terminal:
 
 ```sh
 ./scripts/install.sh
