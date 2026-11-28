@@ -3,6 +3,7 @@
 # Every tool is for the plugin's own page only (_meta.ui.visibility: ["app"]).
 # Standard input and output carry newline-delimited JSON-RPC; Python's
 # standard library only.
+import errno
 import grp
 import json
 import mimetypes
@@ -16,7 +17,7 @@ import time
 import uuid
 import zipfile
 
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 PAGE_ONLY = {"ui": {"visibility": ["app"]}}
 MAX_SCAN = 50000          # entries read from one folder before giving up
 DEFAULT_LIMIT = 300
@@ -28,6 +29,7 @@ COUNT_LIMIT = 10000
 SPECIAL_ROOTS = ("/proc", "/sys", "/dev")
 SHARED_TYPES = ("fuse.sshfs", "virtiofs", "9p")
 EXPORT_SUBFOLDER = "Downloads"
+MAX_NAME_TRIES = 10000     # "name (2)", "name (3)", … before giving up
 
 
 def tool(name, description, properties, required=()):
@@ -393,13 +395,82 @@ def export_target(destination):
     return os.path.join(destination, EXPORT_SUBFOLDER)
 
 
-def free_name(folder, name):
+DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+CREATE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def open_downloads(destination):
+    """Opens the share's Downloads folder, creating it if needed, as a descriptor.
+
+    The export writes only relative to that descriptor, so it stays in the folder
+    checked here even if a path is changed later. Downloads is opened without
+    following links: one pointing elsewhere is refused, not followed."""
+    folder = os.path.join(destination, EXPORT_SUBFOLDER)
+    try:
+        share = os.open(destination, DIRECTORY_FLAGS)
+        try:
+            try:
+                os.mkdir(EXPORT_SUBFOLDER, dir_fd=share)
+            except FileExistsError:
+                pass
+            return os.open(EXPORT_SUBFOLDER, DIRECTORY_FLAGS, dir_fd=share)
+        finally:
+            os.close(share)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise Refused(f"{folder} is a link or a file, not a folder. Rename it to download here.")
+        raise Refused(os_message(error))
+
+
+def candidate_names(name):
     stem, dot, extension = name.partition(".") if not name.startswith(".") else (name, "", "")
-    candidate, number = name, 2
-    while os.path.lexists(os.path.join(folder, candidate)):
-        candidate = f"{stem} ({number}){dot}{extension}"
-        number += 1
-    return candidate
+    yield name
+    for number in range(2, MAX_NAME_TRIES):
+        yield f"{stem} ({number}){dot}{extension}"
+
+
+# linkat errors meaning "no hard links here", as opposed to a real failure.
+NO_HARD_LINKS = {errno.EPERM, errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS, errno.EMLINK, errno.EXDEV}
+
+
+def commit(folder_fd, partial, name):
+    """Gives the finished partial file the first free name and returns it.
+
+    Never replaces an existing file, so two exports with the same name that finish
+    together both keep their content. A hard link fails if the name is taken; where
+    the share has no hard links, the name is first claimed with an exclusive create
+    and the partial file is moved onto that placeholder."""
+    hard_links = True
+    for candidate in candidate_names(name):
+        if hard_links:
+            try:
+                os.link(partial, candidate, src_dir_fd=folder_fd, dst_dir_fd=folder_fd, follow_symlinks=False)
+            except FileExistsError:
+                continue
+            except OSError as error:
+                if error.errno not in NO_HARD_LINKS:
+                    raise
+                hard_links = False
+            else:
+                try:
+                    os.unlink(partial, dir_fd=folder_fd)
+                except OSError:
+                    pass  # a hidden leftover; the download itself is complete
+                return candidate
+        try:
+            os.close(os.open(candidate, CREATE_FLAGS, 0o600, dir_fd=folder_fd))
+        except FileExistsError:
+            continue
+        try:
+            os.rename(partial, candidate, src_dir_fd=folder_fd, dst_dir_fd=folder_fd)
+        except BaseException:
+            try:
+                os.unlink(candidate, dir_fd=folder_fd)
+            except OSError:
+                pass
+            raise
+        return candidate
+    raise OSError(errno.EEXIST, "Too many files with this name", name)
 
 
 class ReadFailed(Exception):
@@ -440,8 +511,8 @@ def open_regular(path):
         raise
 
 
-def write_file(job, source_path, partial):
-    with open_regular(source_path) as source, open(partial, "xb") as target:
+def write_file(job, source_path, target):
+    with open_regular(source_path) as source:
         copy_stream(job, source, target)
     job["files_done"] = 1
 
@@ -479,12 +550,12 @@ def zip_entry(name, info):
     return entry
 
 
-def write_zip(job, folder, partial):
+def write_zip(job, folder, target):
     base = os.path.dirname(folder.rstrip("/")) or "/"
-    with zipfile.ZipFile(partial, "x", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
-        # The archive is recognised by its inode, so a link or another spelling
-        # of the destination folder can't make it zip itself.
-        own = os.fstat(archive.fp.fileno())
+    # The archive is recognised by its inode, so a link or another spelling
+    # of the destination folder can't make it zip itself.
+    own = os.fstat(target.fileno())
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
         for root, dirs, files in os.walk(folder, onerror=lambda error: skip(job, os_message(error))):
             if under(os.path.realpath(root), SPECIAL_ROOTS):
                 dirs[:] = []
@@ -517,15 +588,14 @@ def write_zip(job, folder, partial):
 
 
 def run_export(job):
-    partial = job["partial"]
+    folder_fd, partial = job.pop("folder_fd"), job["partial"]
+    created = False
     try:
-        if job["is_folder"]:
-            write_zip(job, job["source"], partial)
-        else:
-            write_file(job, job["source"], partial)
-        final = os.path.join(job["folder"], free_name(job["folder"], job["name"]))
-        os.rename(partial, final)
-        job.update(state="done", result=final)
+        with os.fdopen(os.open(partial, CREATE_FLAGS, 0o666, dir_fd=folder_fd), "wb") as target:
+            created = True
+            (write_zip if job["is_folder"] else write_file)(job, job["source"], target)
+        final = commit(folder_fd, partial, job["name"])
+        job.update(state="done", result=os.path.join(job["folder"], final))
     except Cancelled:
         job["state"] = "cancelled"
     except Exception as error:  # reported to the page, never raised
@@ -533,11 +603,12 @@ def run_export(job):
             error = error.__cause__
         job.update(state="failed", error=os_message(error) if isinstance(error, OSError) else str(error))
     finally:
-        if job["state"] != "done":
+        if job["state"] != "done" and created:
             try:
-                os.unlink(partial)
+                os.unlink(partial, dir_fd=folder_fd)
             except OSError:
                 pass
+        os.close(folder_fd)
         job["finished"] = time.time()
 
 
@@ -557,10 +628,7 @@ def export_start(args):
         raise Refused("Only regular files and folders can be copied.")
     if not os.access(source, os.R_OK):
         raise Refused(f"Permission denied: {source}")
-    try:
-        os.makedirs(folder, exist_ok=True)
-    except OSError as error:
-        raise Refused(os_message(error))
+    folder_fd = open_downloads(args.get("destination"))
     name = os.path.basename(asked) + (".zip" if is_folder else "")
     job_id = uuid.uuid4().hex
     job = {
@@ -568,7 +636,8 @@ def export_start(args):
         "is_folder": is_folder, "bytes_total": None if is_folder else info.st_size,
         "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0, "started": time.time(),
         # Not named after the file: a long name plus a suffix would exceed NAME_MAX.
-        "partial": os.path.join(folder, f".{job_id}.partial"),
+        "partial": f".{job_id}.partial",  # relative to folder_fd
+        "folder_fd": folder_fd,
         "cancel": threading.Event(),
     }
     with JOBS_LOCK:

@@ -33,7 +33,7 @@ Edit it like any other file; this comment is removed before use.
 
 1. **为何选 `guest`**：浏览的是环境自身的文件系统，不依赖电脑上的任何软件，在各系统上表现一致。
 2. **运行方式**：`python3 server.py`，仅用 Python 标准库；运行时不下载任何代码，无遥测。
-3. **数据流向**：不联网。只读取当前用户可读的文件（`/proc`、`/sys`、`/dev` 可浏览，但不能预览或下载）；仅在用户确认下载后，写入所选共享文件夹的 `Downloads/` 子文件夹（先写入隐藏的 `.partial` 文件再改名）；记住的下载位置保存在 `~/.config/linux-files/preferences.json`。
+3. **数据流向**：不联网。只读取当前用户可读的文件（`/proc`、`/sys`、`/dev` 可浏览，但不能预览或下载）；仅在用户确认下载后，写入所选共享文件夹的 `Downloads/` 子文件夹（`Downloads` 若是软链接则拒绝；先写入隐藏的 `.partial` 文件，完成后以不覆盖的方式取一个空闲文件名）；记住的下载位置保存在 `~/.config/linux-files/preferences.json`。
 
 #### 不向 Claude 提供工具
 

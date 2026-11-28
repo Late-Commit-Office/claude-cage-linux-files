@@ -239,6 +239,30 @@ class ServerTest(unittest.TestCase):
         with zipfile.ZipFile(status["result"]) as archive:
             self.assertFalse(any(name.endswith(".partial") for name in archive.namelist()))
 
+    def test_same_name_exports_at_once_keep_both(self):
+        jobs = [self.server.ok("export_start", path=str(self.tree), destination=str(self.shared)) for _ in range(4)]
+        results = [self.wait(job["id"]) for job in jobs]
+        self.assertTrue(all(status["state"] == "done" for status in results), results)
+        self.assertEqual(sorted(os.listdir(self.downloads)), ["tree (2).zip", "tree (3).zip", "tree (4).zip", "tree.zip"])
+        self.assertEqual(len({status["result"] for status in results}), 4)
+        for status in results:
+            with zipfile.ZipFile(status["result"]) as archive:
+                self.assertEqual(archive.read("tree/file10.txt"), b"ten\n")
+
+    def test_downloads_link_is_refused(self):
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        os.symlink(elsewhere, self.downloads)
+        arguments = dict(path=str(self.tree / "file2.txt"), destination=str(self.shared))
+        response = self.server.call("export_start", **arguments)
+        self.assertTrue(response["isError"])
+        self.assertIn("link", response["content"][0]["text"])
+        os.unlink(self.downloads)
+        os.symlink(self.root / "missing", self.downloads)  # dangling: not created through
+        self.assertTrue(self.server.call("export_start", **arguments)["isError"])
+        self.assertEqual(os.listdir(elsewhere), [])
+        self.assertFalse((self.root / "missing").exists())
+
     def test_export_refusals(self):
         refused = [
             dict(path=str(self.tree / "file2.txt"), destination=str(self.root / "tree")),  # not shared
@@ -343,8 +367,8 @@ class UnitTest(unittest.TestCase):
 
             job = {"cancel": threading.Event(), "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0}
             partial = str(Path(temp, ".job.partial"))
-            with mock.patch.object(module, "open_regular", fake_open):
-                module.write_zip(job, str(folder), partial)
+            with mock.patch.object(module, "open_regular", fake_open), open(partial, "xb") as target:
+                module.write_zip(job, str(folder), target)
             self.assertEqual((job["files_done"], job["skipped_count"]), (1, 2))
             with zipfile.ZipFile(partial) as archive:
                 self.assertEqual(archive.read("data/fine.txt"), b"fine.txt")
@@ -360,7 +384,8 @@ class UnitTest(unittest.TestCase):
                 os.utime(folder / name, (when, when))
             job = {"cancel": threading.Event(), "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0}
             partial = str(Path(temp, ".job.partial"))
-            module.write_zip(job, str(folder), partial)
+            with open(partial, "xb") as target:
+                module.write_zip(job, str(folder), target)
             self.assertEqual((job["files_done"], job["skipped_count"]), (3, 0))
             with zipfile.ZipFile(partial) as archive:
                 self.assertEqual(archive.read("data/bad-�.txt"), b"bad")
@@ -389,14 +414,76 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(self.module.suggested(folders), "/b")
         self.assertIsNone(self.module.suggested([folders[2]]))
 
-    def test_free_name(self):
+    def commit_all(self, folder, contents):
+        """Writes one partial file per content, then commits them all as "a.tar.gz"."""
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            names = []
+            for number, content in enumerate(contents):
+                Path(folder, f".{number}.partial").write_text(content)
+            for number in range(len(contents)):
+                names.append(self.module.commit(fd, f".{number}.partial", "a.tar.gz"))
+            return names
+        finally:
+            os.close(fd)
+
+    def test_commit_never_replaces(self):
         with tempfile.TemporaryDirectory() as folder:
-            for name in ("a.tar.gz", ".bashrc", "plain"):
+            for name in (".bashrc", "plain"):
                 Path(folder, name).write_text("")
-            self.assertEqual(self.module.free_name(folder, "a.tar.gz"), "a (2).tar.gz")
-            self.assertEqual(self.module.free_name(folder, ".bashrc"), ".bashrc (2)")
-            self.assertEqual(self.module.free_name(folder, "plain"), "plain (2)")
-            self.assertEqual(self.module.free_name(folder, "new.txt"), "new.txt")
+            names = [next(self.module.candidate_names(name)) for name in ("x", "y")]
+            self.assertEqual(names, ["x", "y"])
+            self.assertEqual(list(self.module.candidate_names(".bashrc"))[1], ".bashrc (2)")
+            self.assertEqual(list(self.module.candidate_names("plain"))[1], "plain (2)")
+            Path(folder, "a.tar.gz").write_text("old")
+            os.symlink("elsewhere", Path(folder, "a (2).tar.gz"))  # taken too, even dangling
+            self.assertEqual(self.commit_all(folder, ["one", "two"]), ["a (3).tar.gz", "a (4).tar.gz"])
+            self.assertEqual(Path(folder, "a.tar.gz").read_text(), "old")
+            self.assertEqual(Path(folder, "a (3).tar.gz").read_text(), "one")
+            self.assertEqual(Path(folder, "a (4).tar.gz").read_text(), "two")
+            self.assertFalse([name for name in os.listdir(folder) if name.endswith(".partial")])
+
+    def test_commit_without_hard_links(self):
+        def no_links(*args, **kwargs):
+            raise PermissionError(errno.EPERM, "Operation not permitted")
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(self.module.os, "link", no_links):
+            Path(folder, "a.tar.gz").write_text("old")
+            self.assertEqual(self.commit_all(folder, ["one", "two"]), ["a (2).tar.gz", "a (3).tar.gz"])
+            self.assertEqual([Path(folder, name).read_text() for name in ("a.tar.gz", "a (2).tar.gz", "a (3).tar.gz")],
+                             ["old", "one", "two"])
+            self.assertFalse([name for name in os.listdir(folder) if name.endswith(".partial")])
+
+    def test_commit_race_keeps_both(self):
+        # Both exports see the same free name; the slower one must move on, not replace.
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, ".0.partial").write_text("first")
+            Path(folder, ".1.partial").write_text("second")
+            fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                barrier = threading.Barrier(2)
+                real_link = os.link
+                results = {}
+
+                def slow_link(*args, **kwargs):
+                    if args[1] == "a.tar.gz":
+                        barrier.wait(timeout=5)  # both try "a.tar.gz" at the same moment
+                    return real_link(*args, **kwargs)
+
+                def run(number):
+                    results[number] = self.module.commit(fd, f".{number}.partial", "a.tar.gz")
+
+                with mock.patch.object(self.module.os, "link", slow_link):
+                    threads = [threading.Thread(target=run, args=(number,)) for number in (0, 1)]
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join(timeout=10)
+            finally:
+                os.close(fd)
+            self.assertEqual(sorted(results.values()), ["a (2).tar.gz", "a.tar.gz"])
+            self.assertEqual(sorted(Path(folder, name).read_text() for name in results.values()), ["first", "second"])
+            self.assertEqual(sorted(os.listdir(folder)), ["a (2).tar.gz", "a.tar.gz"])
 
 
 if __name__ == "__main__":

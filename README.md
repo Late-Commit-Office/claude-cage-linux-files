@@ -75,7 +75,7 @@ The page runs in Cage's sandboxed frame. It talks to the workbench over `postMes
 | `path_details` | `stat`, owner, symlink target, item count, text preview |
 | `places` | Home, `/`, the writable folders shared with the computer (found in `/proc/self/mountinfo`: `fuse.sshfs`, `virtiofs`, `9p`), and the remembered download folder |
 | `remember_destination` | Save a shared folder as the download folder, or `null` to ask every time |
-| `export_start` / `export_status` / `export_cancel` | Background copy into the shared folder, written to a hidden `.partial` file and renamed when complete |
+| `export_start` / `export_status` / `export_cancel` | Background copy into the shared folder, written to a hidden `.partial` file, then given a free name without ever replacing an existing file; a `Downloads` that is a link is refused |
 
 The page uses the workbench's theme colours (light and dark) and its language (English, 简体中文, 繁體中文). It remembers the last location, the hidden-files toggle and the download folder.
 
