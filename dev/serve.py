@@ -75,6 +75,11 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
 
+def device_of(path):
+    device = os.stat(path).st_dev
+    return f"{os.major(device)}:{os.minor(device)}"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8765)
@@ -88,7 +93,8 @@ def main():
         handle, name = tempfile.mkstemp(prefix="linux-files-mountinfo-")
         os.close(handle)
         fake = Path(name)
-        fake.write_text("".join(f"{90 + i} 1 0:{90 + i} / {path.replace(' ', chr(92) + '040')} rw,relatime - fuse.sshfs sshfs rw\n"
+        # The real device of each folder: the server checks a share's device before writing.
+        fake.write_text("".join(f"{90 + i} 1 {device_of(path)} / {path.replace(' ', chr(92) + '040')} rw,relatime - fuse.sshfs sshfs rw\n"
                                 for i, path in enumerate(args.shared)))
         env["LINUX_FILES_MOUNTINFO"] = str(fake)
     Handler.mcp = McpProcess(env)

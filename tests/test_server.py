@@ -60,6 +60,20 @@ class Server:
         self.process.stdout.close()
 
 
+def device_of(folder):
+    """The folder's device as mountinfo writes it; the server checks it before writing."""
+    device = os.stat(folder).st_dev
+    return f"{os.major(device)}:{os.minor(device)}"
+
+
+def zip_folder(module, job, folder, target):
+    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        module.write_zip(job, fd, os.path.basename(folder), target)
+    finally:
+        os.close(fd)
+
+
 class ServerTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -91,7 +105,7 @@ class ServerTest(unittest.TestCase):
         return server
 
     def share(self, *folders):
-        self.mountinfo.write_text("".join(f"{50 + i} 1 0:{50 + i} / {folder} rw - fuse.sshfs sshfs rw\n"
+        self.mountinfo.write_text("".join(f"{50 + i} 1 {device_of(folder)} / {folder} rw - fuse.sshfs sshfs rw\n"
                                           for i, folder in enumerate(folders)))
 
     def tearDown(self):
@@ -249,6 +263,44 @@ class ServerTest(unittest.TestCase):
             with zipfile.ZipFile(status["result"]) as archive:
                 self.assertEqual(archive.read("tree/file10.txt"), b"ten\n")
 
+    def test_unmounted_share_is_not_written(self):
+        # mountinfo still lists the share, but the folder is now on another device.
+        self.mountinfo.write_text(f"50 1 0:9999 / {self.shared} rw - fuse.sshfs sshfs rw\n")
+        response = self.server.call("export_start", path=str(self.tree / "file2.txt"), destination=str(self.shared))
+        self.assertTrue(response["isError"])
+        self.assertIn("no longer shared", response["content"][0]["text"])
+        self.assertFalse(self.downloads.exists())
+
+    def test_source_is_pinned_when_the_export_starts(self):
+        # Swapping the folder for a link after export_start must not change what is zipped.
+        (self.root / "other").mkdir()
+        (self.root / "other" / "elsewhere.txt").write_text("other\n")
+        big = self.tree / "0-big.bin"  # zipped first, so the swap lands before file10.txt is read
+        with open(big, "wb") as file:
+            file.truncate(64 * 1024 * 1024)
+        job = self.server.ok("export_start", path=str(self.tree), destination=str(self.shared))
+        os.rename(self.tree, self.root / "tree-moved")
+        os.symlink(self.root / "other", self.tree)
+        status = self.wait(job["id"])
+        self.assertEqual(status["state"], "done", status)
+        with zipfile.ZipFile(status["result"]) as archive:
+            names = set(archive.namelist())
+        self.assertIn("tree/file10.txt", names)
+        self.assertNotIn("tree/elsewhere.txt", names)
+
+    def test_stale_partial_files_are_removed(self):
+        self.downloads.mkdir()
+        old, fresh = self.downloads / f".{'a' * 32}.partial", self.downloads / f".{'b' * 32}.partial"
+        mine = self.downloads / ".notes.partial"  # not ours: different pattern
+        for path in (old, fresh, mine):
+            path.write_text("x")
+        os.utime(old, (0, 0))
+        os.utime(mine, (0, 0))
+        self.wait(self.server.ok("export_start", path=str(self.tree / "file2.txt"), destination=str(self.shared))["id"])
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.exists())
+        self.assertTrue(mine.exists())
+
     def test_downloads_link_is_refused(self):
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()
@@ -342,7 +394,7 @@ class UnitTest(unittest.TestCase):
             "46 22 0:40 / /Users/me/superblock-ro rw,relatime - fuse.sshfs sshfs ro,user_id=0",
             "garbage line",
         ])
-        self.assertEqual(self.module.shared_mounts(mountinfo), ["/Users/me/Cage Work", "/Users/me/project", "/mnt/virt"])
+        self.assertEqual(list(self.module.shared_mounts(mountinfo)), ["/Users/me/Cage Work", "/Users/me/project", "/mnt/virt"])
 
     def test_zip_skips_files_that_vanish_or_fail_to_read(self):
         module = self.module
@@ -358,17 +410,17 @@ class UnitTest(unittest.TestCase):
 
             real_open = module.open_regular
 
-            def fake_open(path):
+            def fake_open(path, dir_fd=None):
                 if path.endswith("gone.txt"):
                     raise FileNotFoundError(errno.ENOENT, "No such file or directory", path)
                 if path.endswith("broken.txt"):
-                    return FailingRead(io.FileIO(path))
-                return real_open(path)
+                    return FailingRead(io.FileIO(os.open(path, os.O_RDONLY, dir_fd=dir_fd)))
+                return real_open(path, dir_fd)
 
             job = {"cancel": threading.Event(), "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0}
             partial = str(Path(temp, ".job.partial"))
             with mock.patch.object(module, "open_regular", fake_open), open(partial, "xb") as target:
-                module.write_zip(job, str(folder), target)
+                zip_folder(module, job, folder, target)
             self.assertEqual((job["files_done"], job["skipped_count"]), (1, 2))
             with zipfile.ZipFile(partial) as archive:
                 self.assertEqual(archive.read("data/fine.txt"), b"fine.txt")
@@ -385,13 +437,32 @@ class UnitTest(unittest.TestCase):
             job = {"cancel": threading.Event(), "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0}
             partial = str(Path(temp, ".job.partial"))
             with open(partial, "xb") as target:
-                module.write_zip(job, str(folder), target)
+                zip_folder(module, job, folder, target)
             self.assertEqual((job["files_done"], job["skipped_count"]), (3, 0))
             with zipfile.ZipFile(partial) as archive:
                 self.assertEqual(archive.read("data/bad-�.txt"), b"bad")
                 self.assertIn("data/empty-�/", archive.namelist())
                 self.assertEqual(archive.getinfo("data/future.txt").date_time, (2107, 12, 31, 23, 59, 58))
                 self.assertEqual(archive.getinfo("data/past.txt").date_time, (1980, 1, 1, 0, 0, 0))
+
+    def test_zip_drops_special_permission_bits(self):
+        module = self.module
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp, "data")
+            folder.mkdir()
+            Path(folder, "tool").write_text("x")
+            os.chmod(Path(folder, "tool"), 0o6755)
+            job = {"cancel": threading.Event(), "bytes_done": 0, "files_done": 0, "skipped": [], "skipped_count": 0}
+            with open(Path(temp, "out.zip"), "xb") as target:
+                zip_folder(module, job, folder, target)
+            with zipfile.ZipFile(Path(temp, "out.zip")) as archive:
+                mode = archive.getinfo("data/tool").external_attr >> 16
+            self.assertEqual(oct(mode), oct(0o100755))
+
+    def test_pseudo_file_systems_found_by_device(self):
+        mountinfo = "22 1 0:5 / /srv/jail/proc rw - proc proc rw\n23 1 0:56 / /home/x rw - ext4 /dev/vda1 rw\n"
+        with mock.patch.object(self.module, "read_mountinfo", lambda override=True: mountinfo):
+            self.assertEqual(self.module.pseudo_devices(), {os.makedev(0, 5)})
 
     def test_open_regular_refuses_links_and_pipes(self):
         with tempfile.TemporaryDirectory() as temp:
