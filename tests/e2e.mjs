@@ -240,7 +240,7 @@ await step("type-ahead jumps to a name", async () => {
 
 await step("context menu copies a path", async () => {
   await click(rowSel(0, "projects"));
-  await waitFor(async () => (await columnNames()).length === 2, "projects column again");
+  await waitFor(async () => (await columnNames())[1]?.includes("demo"), "projects column again");
   await click(rowSel(0, "projects"), "right");
   await waitFor(() => page(`!document.getElementById("menu").hidden`), "menu");
   await screenshot("3-menu");
@@ -251,6 +251,8 @@ await step("context menu copies a path", async () => {
 
 await step("⌘C copies the current path", async () => {
   await click(rowSel(1, "demo"));
+  // The next step clicks inside demo's column, which loads in the background.
+  await waitFor(async () => (await columnNames())[2]?.includes("README.md"), "demo column again");
   await key("c", 4 /* meta */);
   await waitFor(async () => (await host("harness.copied")).includes(join(home, "projects", "demo")), "copied with ⌘C");
 });
