@@ -8,7 +8,7 @@
 
 | 项目 | 说明 |
 | --- | --- |
-| 插件名称与版本 | `linux-files` / `0.2.7` |
+| 插件名称与版本 | `linux-files` / `0.2.8` |
 | 运行位置 (`kind`) | `guest`（环境内） |
 | 适用平台 | All: one folder in `plugins/`, Python 3 standard library only. Tested with macOS. |
 | 能力形态 | 扩展页面 (`contributes.views`)，由自带的 MCP 服务器提供数据；**不向 Claude 提供工具**（见下文） |

@@ -288,18 +288,21 @@ class ServerTest(unittest.TestCase):
         self.assertIn("tree/file10.txt", names)
         self.assertNotIn("tree/elsewhere.txt", names)
 
-    def test_stale_partial_files_are_removed(self):
+    def test_other_files_in_downloads_are_left_alone(self):
+        # Downloads is shared with the user and other programs: an export touches only its own files,
+        # even ones that look like a partial file left behind by an earlier job.
         self.downloads.mkdir()
         old, fresh = self.downloads / f".{'a' * 32}.partial", self.downloads / f".{'b' * 32}.partial"
-        mine = self.downloads / ".notes.partial"  # not ours: different pattern
-        for path in (old, fresh, mine):
-            path.write_text("x")
+        old.write_text("user's old file")
+        fresh.write_text("user's new file")
         os.utime(old, (0, 0))
-        os.utime(mine, (0, 0))
-        self.wait(self.server.ok("export_start", path=str(self.tree / "file2.txt"), destination=str(self.shared))["id"])
-        self.assertFalse(old.exists())
-        self.assertTrue(fresh.exists())
-        self.assertTrue(mine.exists())
+        status = self.wait(self.server.ok("export_start", path=str(self.tree / "file2.txt"),
+                                          destination=str(self.shared))["id"])
+        self.assertEqual(status["state"], "done", status)
+        self.assertEqual(old.read_text(), "user's old file")
+        self.assertEqual(old.stat().st_mtime, 0)
+        self.assertEqual(fresh.read_text(), "user's new file")
+        self.assertEqual(sorted(os.listdir(self.downloads)), sorted([old.name, fresh.name, "file2.txt"]))
 
     def test_downloads_link_is_refused(self):
         elsewhere = self.root / "elsewhere"
