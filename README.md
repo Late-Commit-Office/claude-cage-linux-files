@@ -106,7 +106,7 @@ Only `linux-files/` is published, to [Lee-xeo/cage-plugins](https://github.com/L
    - makes one commit and force-pushes it.
 
    The branch is rebuilt each time, never merged or rebased, so it can't conflict.
-3. The run summary links to a pull request form filled in from [`first-pr.md`](first-pr.md), which follows the marketplace's pull request template. Edit that file to change the description. Create a **draft** pull request, add the screenshots the marketplace asks for, and mark it ready. Later versions update an open pull request by themselves.
+3. The run summary links to a pull request form filled in from [`pr-edits/PR-DESCRIPTION-TEMPLATE.md`](pr-edits/PR-DESCRIPTION-TEMPLATE.md), which follows the marketplace's pull request template. Edit that file to change the description. Create a **draft** pull request, add the screenshots the marketplace asks for, and mark it ready. Later versions update an open pull request by themselves.
 
 `python3 scripts/export_market.py MARKET_DIR --author late-commit-office --fork late-commit-office/cage-plugins` does step 2's copying locally, without committing, for a dry run. The workflow needs a `MARKET_TOKEN` secret: a fine-grained token for the fork with Contents and Workflows read/write.
 

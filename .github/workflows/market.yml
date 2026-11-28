@@ -16,7 +16,7 @@ name: Marketplace export
 on:
   push:
     branches: [main]
-    paths: ["linux-files/**"]  # edits to first-pr.md alone don't export; use Run workflow
+    paths: ["linux-files/**"]  # edits to pr-edits/PR-DESCRIPTION-TEMPLATE.md alone don't export; use Run workflow
   workflow_dispatch:
 
 concurrency:
@@ -179,7 +179,7 @@ jobs:
               echo "Its description isn't changed. Update the version and screenshots in it by hand if needed."
             else
               if [ "$BODY_IN_URL" = true ]; then
-                echo "**[Open the pull request]($PR_URL)**. Title and description (from \`first-pr.md\`) are filled in."
+                echo "**[Open the pull request]($PR_URL)**. Title and description (from \`pr-edits/PR-DESCRIPTION-TEMPLATE.md\`) are filled in."
                 fold="<details>"
               else
                 echo "**[Open the pull request]($PR_URL)**. The title is filled in; the description is too long for a link, so paste it from below."
@@ -188,7 +188,7 @@ jobs:
               echo
               echo "Choose **Create draft pull request**, drag in the screenshots, fill in the TODOs, then mark it ready for review."
               echo
-              echo "$fold<summary>Description, filled in from first-pr.md</summary>"
+              echo "$fold<summary>Description, filled in from pr-edits/PR-DESCRIPTION-TEMPLATE.md</summary>"
               echo
               echo '````markdown'
               cat pr-body.md

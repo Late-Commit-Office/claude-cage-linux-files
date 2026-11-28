@@ -19,7 +19,7 @@ It prints key=value lines (for $GITHUB_OUTPUT):
   pr_url     a link that opens a pull request form with the title, and the
              body when the link stays short enough
   body_in_url  "true" or "false"
-It also writes the pull request body, first-pr.md filled in, to
+It also writes the pull request body, pr-edits/PR-DESCRIPTION-TEMPLATE.md filled in, to
 MARKET_DIR/../pr-body.md.
 """
 import argparse
@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "linux-files"
 UPSTREAM = "Lee-xeo/cage-plugins"
 IGNORE = shutil.ignore_patterns(".DS_Store", "__pycache__", "*.pyc")
-TEMPLATE = ROOT / "first-pr.md"
+TEMPLATE = ROOT / "pr-edits" / "PR-DESCRIPTION-TEMPLATE.md"
 # A link longer than this may be cut off by the browser or GitHub; it then carries the title only.
 MAX_URL = 7500
 
@@ -66,7 +66,7 @@ def add_author(market, name, author):
 
 
 def pr_body(version, status, previous, run_url):
-    """first-pr.md with its {{...}} placeholders filled in and its leading comment removed."""
+    """pr-edits/PR-DESCRIPTION-TEMPLATE.md with its {{...}} placeholders filled in and its leading comment removed."""
     tick = lambda done: "x" if done else " "
     values = {
         "VERSION": version,
